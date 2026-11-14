@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cvepatch.dev/schemas/defensive-patch-submission-v1.json",
+  "title": "cvepatch defensive patch submission (v1)",
+  "description": "The record the agent produces via submit_patch(), persisted to the run dir and read by the trusted grader from the read-only /run mount. The patch itself is a unified diff. The grader independently validates format, paths, and application; nothing here is trusted on its face.",
+  "type": "object",
+  "required": ["schema_version", "task_id", "patch_format", "patch"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"type": "string", "const": "1"},
+    "task_id": {"type": "string", "minLength": 1},
+    "patch_format": {
+      "type": "string",
+      "enum": ["unified_diff"],
+      "description": "Only unified diff is accepted in v1."
+    },
+    "patch": {
+      "type": "string",
+      "description": "The unified diff text. May be empty only when a patch is explicitly not required (grader rejects empty when required)."
+    },
+    "base_revision": {
+      "type": ["string", "null"],
+      "description": "Revision the diff is intended to apply against; recorded for provenance. The grader applies against its own trusted baseline regardless."
+    },
+    "submitted_at": {"type": ["string", "null"], "format": "date-time"},
+    "note": {"type": ["string", "null"], "description": "Optional free-form note from the agent."}
+  }
+}

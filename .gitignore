@@ -1,0 +1,59 @@
+# --- Secrets / API keys ---
+.env
+.env.*
+!.env.example
+*.env
+.env.bak*
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ecdsa*
+id_ed25519*
+.git-credentials
+.netrc
+credentials.json
+service-account*.json
+.anthropic
+.aws/
+.ssh/
+
+# --- Large data / archives (GitHub 100MB file limit) ---
+*.7z
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.db
+*.sqlite
+*.sqlite3
+*.parquet
+*.bin
+*.safetensors
+*.pt
+*.ckpt
+
+# --- Python / tooling noise ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+node_modules/
+.pytest_cache/
+.mypy_cache/
+.DS_Store
+
+# --- Nested repo backups, agent worktrees, caches ---
+.git.bak/
+**/.claude/worktrees/
+.cargo_home/
+
+# --- Caches (HF models, cloned third-party repos) ---
+/hf_cache/
+/taskgen_cache/
+/triage_cache/
+/registry_cache/
+
+# --- Transcript containing Langfuse keys ---
+cvepatch/2026-10-28-122736-pastedcontent-id98b7.txt

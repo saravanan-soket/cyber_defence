@@ -1,0 +1,13 @@
+--- a/src/strbuf.c
++++ b/src/strbuf.c
+@@ -17,8 +17,8 @@
+         return 0;
+     }
+     size_t n = strlen(src);
+-    if (n > cap) {          /* BUG: should be `n >= cap` -> clamp to cap-1 */
+-        n = cap;            /* BUG: should be `n = cap - 1` */
++    if (n >= cap) {
++        n = cap - 1;
+     }
+     memcpy(dst, src, n);
+     dst[n] = '\0';          /* writes dst[cap] when n == cap: off-by-one */

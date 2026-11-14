@@ -1,0 +1,15 @@
+diff --git a/src/strbuf.c b/src/strbuf.c
+index 0afe3fc..09dd6c1 100644
+--- a/src/strbuf.c
++++ b/src/strbuf.c
+@@ -8,8 +8,8 @@ size_t strbuf_copy(char *dst, size_t cap, const char *src)
+         return 0;
+     }
+     size_t n = strlen(src);
+-    if (n > cap) {
+-        n = cap;
++    if (n >= cap) {
++        n = cap - 1;
+     }
+     memcpy(dst, src, n);
+     dst[n] = '\0';

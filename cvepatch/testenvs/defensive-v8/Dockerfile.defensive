@@ -1,0 +1,48 @@
+# Defensive layer on top of a bench-v8 bug image.
+#
+#   BASE_IMAGE = the bench-v8 image for one bug, built unchanged by
+#                benchmarks/bench-v8 (`build_bugs.py <CVE>`). Its `base`
+#                stage already contains:
+#                  /rlenv/source/v8       vulnerable tree (TARGET_COMMIT [+ v8.patch]),
+#                                         agent-owned, with out/x64.* already built
+#                  /rlenv/binaries/{vuln,fixed}/<config>/d8   root-owned binaries
+#
+# This layer swaps the offensive surface (Go MCP server + in-episode grade())
+# for the defensive one (cvepatch.core MCP tools + post-episode
+# cli_oneshot grader). Nothing in bench-v8 is modified.
+#
+# Build via ./build.sh (stages the cvepatch.core package + task files).
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+USER root
+
+# Grader/server deps in an isolated venv (FastMCP v1 API -> mcp<2).
+RUN python3 -m venv /opt/venv \
+    && /opt/venv/bin/pip install --no-cache-dir "jsonschema>=4.20" "pyyaml>=6.0" "mcp>=1.1,<2"
+
+# cvepatch.core package (root-owned, read-only to the agent).
+COPY pkg/ /opt/pkg/
+
+# Defensive task manifest + operator-supplied trusted regression test(s).
+# The regression test is NOT shipped with bench-v8; see regression/README.md.
+COPY task/ /opt/defensive/task/
+COPY regression/ /opt/defensive/regression/
+
+RUN chown -R root:root /opt/pkg /opt/defensive \
+ && chmod -R a+rX,go-w /opt/pkg /opt/defensive \
+ && mkdir -p /rlenv/workspace && chown agent:agent /rlenv/workspace
+
+USER agent
+WORKDIR /rlenv/source/v8
+
+ENV PYTHONPATH=/opt/pkg \
+    PATH=/opt/venv/bin:$PATH \
+    DEF_SOURCE_DIR=/rlenv/source/v8 \
+    DEF_WORKSPACE_DIR=/rlenv/workspace \
+    DEF_TASK_PATH=/opt/defensive/task/defensive_task.json
+
+# Replace the offensive Go MCP ENTRYPOINT. CMD (not ENTRYPOINT) so the
+# post-episode grader's argv overrides it.
+ENTRYPOINT []
+CMD ["/opt/venv/bin/python", "-m", "cvepatch.core.mcp_server.tools"]

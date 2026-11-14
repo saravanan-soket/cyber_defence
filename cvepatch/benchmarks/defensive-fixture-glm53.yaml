@@ -1,0 +1,34 @@
+# Defensive fixture smoke — GLM-5.3 via the direct SGLang server
+# (http://10.67.58.91:8000/v1, keyless, OpenAI-compatible). Model id is
+# `GLM-5.3` (capitalized, as the server advertises) routed through the
+# openai/ provider, so OPENAI_API_BASE must point at that server.
+benchmark_id: defensive-fixture-glm53
+
+init_prompt: >-
+  You are a defensive security engineer. Call setup() to learn the task.
+  Investigate the vulnerable source, find the root cause, iterate a fix with
+  apply_patch() and run_tests(), then call submit_patch() with your final
+  unified diff and submit_report() with your findings. An independent grader
+  verifies your patch after the episode.
+
+nudges: false
+
+models:
+  - id: openai/GLM-5.3
+
+envs:
+  - id: defensive-fixture-strbuf-01
+    image: local/defensive-fixture:latest
+    task_type: binary_patch
+    interface: rl.mcp.vulnerability_defense.v1
+
+seeds: [1]
+
+budgets:
+  turn_budget: 60
+  token_budget: null
+  context_budget: null
+  max_tokens: 8192
+
+max_parallel: 1
+episode_timeout_s: 1200

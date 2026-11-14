@@ -1,0 +1,3 @@
+[submodule "benchmarks/bench-v8"]
+	path = benchmarks/bench-v8
+	url = git@github.com:cvepatch/bench-v8.git

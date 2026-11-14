@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cvepatch.dev/schemas/defensive-root-cause-report-v1.json",
+  "title": "cvepatch defensive root-cause report (v1)",
+  "description": "Structured report the defensive agent submits via submit_report(). Its SCHEMA is validated and selected fields are checked mechanically against the source tree (file paths, line ranges, commit references). Semantic evaluation of this report is kept entirely separate from the deterministic patch-verification verdict; the report never influences PATCH_VERIFIED.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "task_id",
+    "vulnerability_summary",
+    "root_cause",
+    "affected_file",
+    "affected_line_range",
+    "security_invariant_violated",
+    "proposed_fix",
+    "tests_executed"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"type": "string", "const": "1"},
+    "task_id": {"type": "string", "minLength": 1},
+    "vulnerability_summary": {"type": "string", "minLength": 1},
+    "root_cause": {"type": "string", "minLength": 1},
+    "affected_file": {"type": "string", "minLength": 1, "description": "Relative path within the source tree."},
+    "affected_line_range": {
+      "type": "array",
+      "items": {"type": "integer", "minimum": 1},
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "[start_line, end_line], 1-indexed inclusive."
+    },
+    "data_control_flow": {"type": ["string", "null"], "description": "Relevant data/control flow narrative."},
+    "security_invariant_violated": {"type": "string", "minLength": 1},
+    "proposed_fix": {"type": "string", "minLength": 1},
+    "fix_rationale": {"type": ["string", "null"]},
+    "regression_risks": {"type": ["string", "null"]},
+    "tests_executed": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Tests the agent reports having run."
+    },
+    "test_results": {"type": ["string", "null"]},
+    "remaining_uncertainty": {"type": ["string", "null"]},
+    "commit_references": {
+      "type": "array",
+      "items": {"type": "string"},
+      "default": [],
+      "description": "Commit hashes the agent cites; checked mechanically against the source tree where feasible."
+    }
+  }
+}

@@ -1,0 +1,1674 @@
+
+● Now tests for the adapters. They run on tiny synthetic project trees, so no
+  network is needed and no repo code runs:
+
+● Write(exploitbench/tests/unit/test_defensive_taskgen.py)
+  ⎿  Wrote 155 lines to exploitbench/tests/unit/test_defensive_taskgen.py
+       1 """Language-neutral task builder: adapters + core helpers.
+       2
+       3 Synthetic project trees only; no network and no repository code
+         executed.
+       4 """
+       6 from __future__ import annotations
+       7
+       8 import json
+       9 import shlex
+      10 from pathlib import Path
+     … +180 lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+  ⎿  Read exploitbench/tests/unit/test_defensive_taskgen.py (156 lines)
+  ⎿  Read scripts/defensive_taskgen_confirm.py (160 lines)
+  ⎿  Read scripts/defensive_taskgen.py (79 lines)
+  ⎿  Referenced file exploitbench/defensive/taskgen/core.py
+  ⎿  Referenced file exploitbench/defensive/taskgen/languages.py
+
+● All 22 adapter tests pass. I'm fixing a stale docstring reference, then
+  running the full suite and lint.
+
+● Update(scripts/defensive_taskgen_confirm.py)
+  ⎿  Added 1 line, removed 1 line
+      2  """Container step: build each task image and confirm its oracle.
+      3  
+      4  Runs where `docker` is available (the DinD Job). For every bundl
+         e written by
+      5 -defensive_taskgen_go.py:                                        
+      5 +defensive_taskgen.py (any language):                            
+      6    1. build the task image (dependencies fetched here, at build t
+         ime);
+      7    2. grade the UPSTREAM fix with the production grader, in a fre
+         sh container
+      8       with --network none, exactly as an agent's patch would be g
+         raded;
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Committed as ac2cd93. Now the host-only split across all 7 languages. This
+  step only clones repos and reads diffs; it runs no repository code.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Monitor(per-language split progress (lang done / crash))
+  ⎿  Monitor started · task bqa2s5dt4 · timeout 1800s
+
+● The split is running in the background. It's cloning repos and reading diffs
+  for 20 sampled CVEs per language, and I'll report the per-language results
+  when it finishes.
+
+● Monitor event: "per-language split progress (lang done / crash)"
+  [go 3/20] CVE-2021-4070: FAILED - PermissionError: [Errno 13] Permission
+  denied: '__init__.py'
+  [go 4/20] CVE-2026-58402: FAILED - PermissionError: [Errno 13] Permission
+  denied: 'tool_calls.jsonl'
+  [go 8/20] CVE-2023-28119: FAILED - PermissionError: [Errno 13] Permission
+  denied: '__init__.py'
+  [go 9/20] CVE-2026-41068: FAILED - PermissionError: [Errno 13] Permission
+  denied: 'tool_calls.jsonl'
+
+● The Go bundles from the earlier confirmation run are root-owned, because the
+  DinD pod wrote them. A rerun would also clobber already-confirmed tasks. I'm
+  stopping the split and making it skip any bundle that already exists.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Background command "Run host split for all languages" failed with exit code
+144
+
+  Listed 1 directory, ran 1 shell command (ctrl+o to expand)
+
+● The rmtree on line 271 failed partway through on root-owned files, leaving
+  some Go bundles partly deleted, including two marked REPRODUCIBLE. I'm
+  checking how much damage there is and who owns the leftovers.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Five Go bundles were damaged, including both REPRODUCIBLE ones, but since
+  generation is deterministic, rebuilding them in place is safe. I'm changing
+  build_task to reuse complete bundles by default and to tolerate root-owned
+  pkg/ and confirm_run/ leftovers on forced rebuilds.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● I'm adding a guard so the split reuses complete bundles, since meta.json is
+  written last. Then I'll repair the five damaged Go bundles and restart the
+  split.
+
+● Bash(python3 - <<'EOF'
+      p='exploitbench/defensive/taskgen/core.py'…)
+  ⎿  Updated exploitbench/defensive/taskgen/core.py (+23 -6)
+      240  
+      241  # ------------------------------------------------------------
+           ---- build
+      242  
+      243 +BUNDLE_FILES = ("meta.json", "Dockerfile", "env_manifest.yaml"
+          +, "task/defensive_task.json",                                 
+      244 +                "reference/fix.patch", "oracle/run.sh")       
+      245 +                                                              
+      246 +                                                              
+      247 +def bundle_complete(out: Path) -> bool:                       
+      248 +    """meta.json is written last, so its presence (plus the re
+          +st) marks a full bundle."""                                   
+      249 +    return all((out / f).is_file() for f in BUNDLE_FILES) and 
+          +any((out / "baseline").iterdir())                             
+      250 +                                                              
+      251 +                                                              
+      252  def build_task(cve: str, commit_url: str, cache: Path, out_roo
+           t: Path,
+      244 -               adapter: Adapter) -> dict[str, Any]:           
+      253 +               adapter: Adapter, reuse: bool = True) -> dict[s
+          +tr, Any]:                                                     
+      254 +    task_id = f"{adapter.name}-{cve.lower()}"                 
+      255 +    out = out_root / task_id                                  
+      256 +    if reuse and out.is_dir() and bundle_complete(out):       
+      257 +        # Never rewrite a bundle that may already be confirmed
+          + (the DinD step                                               
+      258 +        # leaves root-owned pkg/ and confirm_run/ in it).     
+      259 +        return {"task_id": task_id, "reused": True, **json.loa
+          +ds((out / "meta.json").read_text())}                          
+      260      repo_url, short = parse_github_commit(commit_url)
+      261      repo = fetch(repo_url, short, cache)
+      262      fix = git(repo, "rev-parse", f"{short}^{{commit}}").strip(
+           )
+     ...
+      280      code = [c.path for c in code_changes]
+      281      code_specs = sorted({p for c in code_changes for p in (c.p
+           ath, c.old)})
+      282  
+      268 -    task_id = f"{adapter.name}-{cve.lower()}"                 
+      269 -    out = out_root / task_id                                  
+      270 -    if out.exists():                                          
+      271 -        shutil.rmtree(out)                                    
+      283 +    # Remove what we own; confirm-step leftovers (root-owned p
+          +kg/, confirm_run/,                                            
+      284 +    # confirm_result.json) may remain and are recreated by tha
+          +t step anyway.                                                
+      285 +    for child in (out.iterdir() if out.is_dir() else []):     
+      286 +        if child.name not in ("pkg", "confirm_run", "confirm_r
+          +esult.json"):                                                 
+      287 +            shutil.rmtree(child) if child.is_dir() else child.
+          +unlink()                                                      
+      288      (out / "baseline").mkdir(parents=True)
+      289      try:
+      290          arc = subprocess.run(["git", "-C", str(repo), "archive
+           ", vuln], capture_output=True,
+     ...
+      312          (out / "reference").mkdir()
+     … 8 more lines (ctrl+o to expand)
+
+● Bash(python3 - <<'EOF'
+      p='exploitbench/defensive/taskgen/core.py'…)
+  ⎿  Updated exploitbench/defensive/taskgen/core.py (+2 -0)
+      314      except BaseException:
+      315          for f in ("baseline", "oracle", "reference"):
+      316              shutil.rmtree(out / f, ignore_errors=True)
+      317 +        if not any(out.iterdir()):                            
+      318 +            out.rmdir()                                       
+      319          raise
+      320  
+      321      meta = {"cve": cve, "lang": adapter.name, "repo": repo_url
+           , "fix_commit": fix,
+  ⎿  Updated scripts/defensive_taskgen.py (+6 -2)
+      40      ap.add_argument("--seed", type=int, default=11)
+      41      ap.add_argument("--cache", type=Path, required=True)
+      42      ap.add_argument("--out", type=Path, required=True)
+      43 +    ap.add_argument("--rebuild", action="store_true",          
+      44 +                    help="regenerate bundles even when a comple
+         +te one exists")                                                
+      45      a = ap.parse_args()
+      46  
+      47      rows = [json.loads(ln) for ln in a.rows.open()]
+     ...
+      58              for i, r in enumerate(sample, 1):
+      59                  rec = {"cve": r["cve"], "lang": lang, "commit":
+           r["github_commit"]}
+      60                  try:
+      59 -                    meta = build_task(r["cve"], r["github_commi
+         -t"], a.cache, out, ad)                                         
+      61 +                    meta = build_task(r["cve"], r["github_commi
+         +t"], a.cache, out, ad,                                         
+      62 +                                      reuse=not a.rebuild)     
+      63                      rec.update(status="CLASSIFIED", task_id=met
+          a["task_id"], image=meta["image"],
+      61 -                               reason="bundle written; awaiting
+         - confirmation")                                                
+      64 +                               reason=("existing bundle reused"
+         + if meta.get("reused")                                         
+      65 +                                       else "bundle written; aw
+         +aiting confirmation"))                                         
+      66                  except SkipCandidate as e:
+      67                      rec.update(status=status_for(str(e)), reaso
+          n=str(e))
+      68                  except Exception as e:  # noqa: BLE001 - record
+           and keep going
+  ⎿  Updated exploitbench/tests/unit/test_defensive_taskgen.py (+15 -0)
+      153  def test_oracle_script_quotes_compile_pattern():
+      154      sh = core.ORACLE_SH.format(oracle="true", compile_re=shlex
+           .quote(r"a|b \[x\]"))
+      155      assert "grep -qE 'a|b \\[x\\]'" in sh
+      156 +                                                              
+      157 +                                                              
+      158 +def test_complete_bundle_is_reused_not_rewritten(tmp_path):   
+      159 +    out = tmp_path / "go-cve-2099-0001"                       
+      160 +    for f in core.BUNDLE_FILES:                               
+      161 +        (out / f).parent.mkdir(parents=True, exist_ok=True)   
+      162 +        (out / f).write_text("{}" if f == "meta.json" else "x"
+          +)                                                             
+      163 +    (out / "baseline").mkdir()                                
+      164 +    (out / "baseline" / "go.mod").write_text("module m\n")    
+      165 +    # The commit URL is never touched: a reused bundle needs n
+          +o clone.                                                      
+      166 +    meta = core.build_task("CVE-2099-0001", "not-a-url", tmp_p
+          +ath / "cache", tmp_path,                                      
+      167 +                           ADAPTERS["go"])                    
+      168 +    assert meta["reused"] and (out / "Dockerfile").read_text()
+          + == "x"                                                       
+      169 +    (out / "meta.json").unlink()                              
+      170 +    assert not core.bundle_complete(out)                      
+
+● Tests and lint pass. Next I'm rebuilding the five damaged Go bundles in place:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● All five are rebuilt. Next I'm restarting the full split; existing Go bundles
+  will now be reused instead of rewritten.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Monitor(split: language finished or crash)
+  ⎿  Monitor started · task bp5qlixj9 · timeout 1800s
+● The split is running again across all 7 languages, with existing Go bundles
+  protected. I'll commit the fix and report the per-language results when it
+  finishes.
+
+● Monitor event: "split: language finished or crash"
+  [go 17/20] CVE-2026-76803: FAILED - KeyError: 'image'
+  [go 19/20] CVE-2026-40344: FAILED - KeyError: 'image'
+  [go 20/20] CVE-2022-36009: FAILED - KeyError: 'image'
+
+● The KeyError only affects the log: old Go meta.json files (from the previous
+  go.py) don't record image, and the bundles themselves are untouched. I'm
+  fixing the script now and will rerun Go alone afterwards, which is fast
+  because it reuses the existing bundles.
+
+● Bash(sed -i 's/image=meta\["image"\],/image=meta.get("image"),/'
+      scripts/defensive_taskgen.py && grep -n 'meta.get("image")'
+      scripts/defensive_taskgen.py)
+  ⎿  Updated scripts/defensive_taskgen.py (+1 -1)
+      60                  try:
+      61                      meta = build_task(r["cve"], r["github_commi
+          t"], a.cache, out, ad,
+      62                                        reuse=not a.rebuild)
+      63 -                    rec.update(status="CLASSIFIED", task_id=met
+         -a["task_id"], image=meta["image"],                             
+      63 +                    rec.update(status="CLASSIFIED", task_id=met
+         +a["task_id"], image=meta.get("image"),                         
+      64                                 reason=("existing bundle reused"
+           if meta.get("reused")
+      65                                         else "bundle written; aw
+          aiting confirmation"))
+      66                  except SkipCandidate as e:
+
+● Monitor event: "per-language split progress (lang done / crash)"
+  [go 17/20] CVE-2026-76803: FAILED - KeyError: 'image'
+  [go 19/20] CVE-2026-40344: FAILED - KeyError: 'image'
+  [go 20/20] CVE-2022-36009: FAILED - KeyError: 'image'
+
+● That's the same KeyError from the old monitor reading the same log, and it's
+  already fixed. Waiting for the other languages to finish.
+
+● Monitor event: "split: language finished or crash"
+  [python 20/20] CVE-2022-1554: INCONCLUSIVE - fix commit has no test changes
+  (no oracle)
+
+● Python has finished; JavaScript, Java, Rust, PHP and Ruby are still running.
+
+● Monitor event: "per-language split progress (lang done / crash)"
+  [python 20/20] CVE-2022-1554: INCONCLUSIVE - fix commit has no test changes
+  (no oracle)
+
+● Stop Task
+  ⎿  cd /projects/data/datasets/code_data/cyber_defence/exploitbench &&
+     tail -n +1 -F runs/defensive-tasks/split.log | grep -E --line-buffered
+     " 20/20\]|Traceback|Er… · stopped
+
+● I stopped the duplicate monitor; one watch on the split remains.
+
+● Monitor event: "split: language finished or crash"
+  [javascript 20/20] CVE-2021-41109: UNSUPPORTED - fix changes dependency
+  manifests (can't grade offline)
+
+● JavaScript has finished too. Java, Rust, PHP and Ruby are still running.
+
+● Monitor event: "split: language finished or crash"
+  [java 20/20] CVE-2025-1584: INCONCLUSIVE - fix commit has no test changes (no
+  oracle)
+
+● Java has finished. Rust, PHP and Ruby are left.
+
+● Monitor event: "split: language finished or crash"
+  [rust 20/20] CVE-2026-33055: UNSUPPORTED - fix changes dependency manifests
+  (can't grade offline)
+
+● Rust has finished. PHP and Ruby are left.
+
+● Monitor event: "split: language finished or crash"
+  [php 20/20] CVE-2023-37280: INCONCLUSIVE - fix commit has no test changes (no
+  oracle)
+
+● PHP has finished. Only Ruby is left.
+
+● Background command "Rerun host split for all languages" completed (exit code
+0)
+
+● The split has finished. I'm rerunning it once with the image fix so the Go log
+  is correct; repos are cached and bundles get reused, so this is quick.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Monitor event: "split: language finished or crash"
+  [ruby 20/20] CVE-2011-0448: CLASSIFIED - bundle written; awaiting confirmation
+
+● Monitor event: "split: language finished or crash"
+  [go 20/20] CVE-2022-36009: CLASSIFIED - existing bundle reused
+
+● Monitor event: "split: language finished or crash"
+  [python 20/20] CVE-2022-1554: INCONCLUSIVE - fix commit has no test changes
+  (no oracle)
+
+● Monitor event: "split: language finished or crash"
+  [javascript 20/20] CVE-2021-41109: UNSUPPORTED - fix changes dependency
+  manifests (can't grade offline)
+
+● Monitor event: "split: language finished or crash"
+  [java 20/20] CVE-2025-1584: INCONCLUSIVE - fix commit has no test changes (no
+  oracle)
+
+● Monitor event: "split: language finished or crash"
+  [rust 20/20] CVE-2026-33055: UNSUPPORTED - fix changes dependency manifests
+  (can't grade offline)
+
+● Stop Task
+  ⎿  cd /projects/data/datasets/code_data/cyber_defence/exploitbench &&
+     tail -n +1 -F runs/defensive-tasks/split.log | grep -E --line-buffered
+     " 20/20\]|Traceback|Pe… · stopped
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Monitor event: "split: language finished or crash"
+  [php 20/20] CVE-2023-37280: INCONCLUSIVE - fix commit has no test changes (no
+  oracle)
+  [ruby 20/20] CVE-2011-0448: CLASSIFIED - existing bundle reused
+
+● Before you start the confirmation Job, I'm checking whether it would
+  re-confirm the 20 Go bundles that already have results:
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● I'm adding a --only-new flag and making it the Job default, so the next run
+  will cover the 41 new bundles and the 6 previously failed Go bundles.
+
+● Bash(python3 - <<'EOF'
+      p='scripts/defensive_taskgen_confirm.py'…)
+  ⎿  Updated scripts/defensive_taskgen_confirm.py (+7 -3)
+      111      ap.add_argument("--prune-images", action="store_true",
+      112                      help="remove each rejected image to save d
+           isk")
+      113      ap.add_argument("--only-failed", action="store_true",
+      114 -                    help="retry only bundles whose previous re
+          -sult was FAILED")                                             
+      114 +                    help="retry bundles whose previous result 
+          +was FAILED")                                                  
+      115 +    ap.add_argument("--only-new", action="store_true",        
+      116 +                    help="confirm bundles with no previous res
+          +ult (combines with --only-failed)")                           
+      117      a = ap.parse_args()
+      118      # Bundles directly under --out, or one level down (<out>/<
+           lang>/<bundle>).
+      119      bundles = sorted({p.parent for p in a.out.glob("Dockerfile
+           ")} |
+     ...
+      125          for ln in prev_path.read_text().splitlines():
+      126              r = json.loads(ln)
+      127              prev[r["task_id"]] = r
+      126 -    if a.only_failed:                                         
+      127 -        bundles = [b for b in bundles if prev.get(b.name, {}).
+          -get("status") == "FAILED"]                                    
+      128 +    if a.only_failed or a.only_new:                           
+      129 +        bundles = [b for b in bundles                         
+      130 +                   if (a.only_new and b.name not in prev)     
+      131 +                   or (a.only_failed and prev.get(b.name, {}).
+          +get("status") == "FAILED")]                                   
+      132      stats = Counter()
+      133      results = dict(prev)
+      134      with (a.out / "confirm.run.jsonl").open("w") as log:
+● The task builder now covers seven languages instead of just Go. I ran the
+  split for all of them: 20 CVEs sampled per language produced 42 new task
+  bundles waiting for confirmation, on top of the 21 Go bundles from before. The
+  code is committed on feature/defensive-v8 (ac2cd93, fdc6fd1, e402580), and
+  the full test suite passes (763 tests).
+
+  This step only cloned repos and read diffs. None of the new bundles has been
+  built or run yet; that happens in the confirmation Job.
+
+  Results by language (each CVE that reached the builder has an upstream fix on
+  GitHub):
+
+  ┌───────────────┬────────────┬────────────────┬──────────┬───────────────┐
+  │               │            │                │ No test  │   Can't be    │
+  │   Language    │   CVEs     │    Bundles     │ in the   │    graded     │
+  │               │ available  │                │   fix    │  offline /    │
+  │               │            │                │          │     other     │
+  ├───────────────┼────────────┼────────────────┼──────────┼───────────────┤
+  │               │            │ 8 (21 on disk  │          │               │
+  │ Go            │ 1,751      │ incl. earlier  │ 10       │ 2             │
+  │               │            │ pilot)         │          │               │
+  ├───────────────┼────────────┼────────────────┼──────────┼───────────────┤
+  │ Python        │ 2,813      │ 7              │ 9        │ 4             │
+  ├───────────────┼────────────┼────────────────┼──────────┼───────────────┤
+  │ JavaScript/TS │ 2,970      │ 8              │ 7        │ 5             │
+  ├───────────────┼────────────┼────────────────┼──────────┼───────────────┤
+  │ Java          │ 994        │ 6              │ 10       │ 4             │
+  ├───────────────┼────────────┼────────────────┼──────────┼───────────────┤
+  │ Rust          │ 260        │ 3              │ 13       │ 4             │
+  ├───────────────┼────────────┼────────────────┼──────────┼───────────────┤
+  │ PHP           │ 2,250      │ 4              │ 15       │ 1             │
+  ├───────────────┼────────────┼────────────────┼──────────┼───────────────┤
+  │ Ruby          │ 401        │ 13             │ 5        │ 2             │
+  └───────────────┴────────────┴────────────────┴──────────┴───────────────┘
+
+  About 35% of sampled CVEs become bundles. The main reason the rest drop out:
+  - 67 of 140: the fix commit adds no test, so there is nothing to check a patch
+    against.
+  - 16: the fix changes dependency files, which can't be graded without network
+    access.
+
+  A problem I caused and fixed. My first split run rewrote existing Go bundles.
+  The earlier confirmation run had left root-owned files inside them, so the
+  rewrite failed halfway and partly deleted five bundles. Two of those were
+  confirmed-good tasks (CVE-2021-4070 and CVE-2026-58402). I rebuilt all five
+  from their commits; the builder produces the same files from the same commit,
+  so they should be unchanged. The builder now reuses any complete bundle
+  instead of rewriting it (--rebuild forces a rewrite).
+
+  Next step needs you. Please start the confirmation Job; I'm not allowed to
+  create Jobs that run external repo code:
+  kubectl -n exploitbench create -f
+  deploy/kube/exploitbench-defensive-taskgen.yaml
+  Its default now confirms the 42 new bundles plus the 6 Go bundles that failed
+  before (5 of those were network errors), and skips the ones that already have
+  results. Each bundle's image is built, the upstream fix is graded with no
+  network, and the bundle is accepted only if the vulnerable code fails its test
+  and the fixed code passes. Results are written to
+  runs/defensive-tasks/confirm.jsonl.
+
+  Once that finishes, the next piece is a benchmark config to run GLM-5.3 on all
+  the accepted tasks across languages.
+
+❯ there are 80k cve https://claude.ai/artifact/VYhYYL4bCAx5H5zHjnp388#tracks
+  how mucah can we able to patch it up
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● About 1,500 of the 80k CVEs can become automatically verified patch tasks with
+  the pipeline as it stands. With more building blocks that could grow to
+  roughly 3,500–5,000, which is about 4–6%. An agent can attempt a patch for
+  almost any of the 80k, but we can only check its patch when the upstream fix
+  also added a test. That is where most CVEs drop out.
+
+  Where the 80,754 CVEs with a fix commit sit
+
+  ┌───────────────────────────┬───────────┬─────────────────┬───────────────┐
+  │           Track           │ Has fix   │ Fix commit on   │    Status     │
+  │                           │  commit   │     GitHub      │               │
+  ├───────────────────────────┼───────────┼─────────────────┼───────────────┤
+  │ C/C++ and other           │ 35,013    │ 16,337          │ no builder    │
+  │ ("git-generic")           │           │                 │ yet           │
+  ├───────────────────────────┼───────────┼─────────────────┼───────────────┤
+  │ Linux kernel              │ 17,270    │ 0 (kernel.org)  │ needs its own │
+  │                           │           │                 │  track        │
+  ├───────────────────────────┼───────────┼─────────────────┼───────────────┤
+  │ Python / JS / PHP / Java  │ 25,483    │ 11,439          │ builders done │
+  │ / Go / Rust / Ruby        │           │                 │               │
+  ├───────────────────────────┼───────────┼─────────────────┼───────────────┤
+  │ Android                   │ 1,719     │ 39              │ not practical │
+  ├───────────────────────────┼───────────┼─────────────────┼───────────────┤
+  │                           │           │                 │ small         │
+  │ .NET / Elixir / others    │ ~1,270    │ ~555            │ builders      │
+  │                           │           │                 │ needed        │
+  └───────────────────────────┴───────────┴─────────────────┴───────────────┘
+
+  Estimate for the 7 languages that already have builders (11,439 CVEs)
+
+  ┌────────────┬──────────┬─────────────────┬───────────┬──────────────────┐
+  │  Language  │ GitHub   │ Became bundles  │   Est.    │  Est. verified   │
+  │            │   CVEs   │    in sample    │  bundles  │      (~40%)      │
+  ├────────────┼──────────┼─────────────────┼───────────┼──────────────────┤
+  │ JavaScript │ 2,970    │ 8/20            │ ~1,190    │ ~475             │
+  ├────────────┼──────────┼─────────────────┼───────────┼──────────────────┤
+  │ Python     │ 2,813    │ 7/20            │ ~985      │ ~395             │
+  ├────────────┼──────────┼─────────────────┼───────────┼──────────────────┤
+  │ Go         │ 1,751    │ 8/20            │ ~700      │ ~280             │
+  ├────────────┼──────────┼─────────────────┼───────────┼──────────────────┤
+  │ PHP        │ 2,250    │ 4/20            │ ~450      │ ~180             │
+  ├────────────┼──────────┼─────────────────┼───────────┼──────────────────┤
+  │ Java       │ 994      │ 6/20            │ ~300      │ ~120             │
+  ├────────────┼──────────┼─────────────────┼───────────┼──────────────────┤
+  │ Ruby       │ 401      │ 13/20           │ ~260      │ ~105             │
+  ├────────────┼──────────┼─────────────────┼───────────┼──────────────────┤
+  │ Rust       │ 260      │ 3/20            │ ~40       │ ~15              │
+  ├────────────┼──────────┼─────────────────┼───────────┼──────────────────┤
+  │ Total      │ 11,439   │                 │ ~3,900    │ ~1,200–1,750     │
+  └────────────┴──────────┴─────────────────┴───────────┴──────────────────┘
+
+  The ~40% verification rate comes from the Go pilot. 6 of the 20 Go bundles
+  passed confirmation, and 5 of the failures were network errors that a retry
+  should fix. That gives 6 out of 15, or about 40%. These numbers rest on 20-CVE
+  samples, so each language's figure could be off by ±50%. The confirmation Job
+  you're about to run will give measured rates for all seven.
+
+  What else could be added, roughly in order of payoff
+
+  ┌─────────────────────────────────┬─────────────┬─────────────────────────┐
+  │            Extension            │    Pool     │  Extra verified tasks   │
+  ├─────────────────────────────────┼─────────────┼─────────────────────────┤
+  │ Fetch fixes from GitLab and     │ ~14,000     │                         │
+  │ other git hosts, not just       │ language    │ +1,000–1,500            │
+  │ GitHub                          │ CVEs        │                         │
+  ├─────────────────────────────────┼─────────────┼─────────────────────────┤
+  │ C/C++ builder                   │             │ +500–1,000 (fixes       │
+  │ (make/cmake/autotools)          │ 16,337      │ rarely add tests;       │
+  │                                 │             │ builds are hard)        │
+  ├─────────────────────────────────┼─────────────┼─────────────────────────┤
+  │ OSS-Fuzz records, which ship a  │ 3,783       │ +800–1,500 (high yield) │
+  │ crash reproducer as the check   │             │                         │
+  ├─────────────────────────────────┼─────────────┼─────────────────────────┤
+  │ V8 track (already built)        │ 509         │ +100–200                │
+  ├─────────────────────────────────┼─────────────┼─────────────────────────┤
+  │ .NET / Elixir builders          │ ~500        │ +100                    │
+  ├─────────────────────────────────┼─────────────┼─────────────────────────┤
+  │ Linux kernel via syzbot         │             │ a few hundred, and very │
+  │ reproducers                     │ 17,270      │  costly (kernel build   │
+  │                                 │             │ plus VM per task)       │
+  └─────────────────────────────────┴─────────────┴─────────────────────────┘
+
+  Why most of the 80k can't be verified
+  1. The fix adds no test (about 48% of samples). Without a test there is no
+     automatic way to tell whether a patch is right. Having a model write the
+     tests is possible but would make the benchmark less trustworthy, so I
+     haven't counted it.
+  2. The fix changes dependency files (about 11%). Grading runs with no network,
+     so new packages can't be installed.
+  3. No usable source. The kernel and Android fixes have no GitHub commit, and
+     some repos are mirrors or archives.
+  4. Builds or tests that don't work. Flaky tests, changes that need a new API,
+     or an environment that won't build: roughly 60% of bundles fail
+     confirmation.
+
+  The best next step after the confirmation Job is OSS-Fuzz, because its
+  reproducers make a reliable check. After that, fetching from non-GitHub hosts
+  adds the most tasks for the least work.
+
+❯ okay now it not exploit bench, this is a vulnerability finder and doing patch
+  work and doing a regression test on the patch, and for every cve on that 80k
+  we will be doing the patchwork instead of the grading sysytem if need we can
+  keep, if dont, then not needed, our goal is to patch all the cve and check
+  the commit if there is no commit and find the bug and do patch and do
+  regression, not only for this and also for the cve having a commit and i want
+  to capture the reasoning traces of these patches in the langfuse so that i
+  can train a llm on the patch working, so rename the folder name and keep the
+  files which are needed and remove the files which are not needed and give me
+  a solif plan brfore proceeding
+
+● Before writing the plan I'm taking an inventory of the repo, so the
+  keep/remove list names real files.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Next I'm checking whether reasoning text from GLM-5.3 currently reaches
+  Langfuse, since training on reasoning is the whole point:
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● The plan is below. Nothing has been changed yet; it needs your answers to the
+  decisions at the end before I start.
+
+  Plan: from ExploitBench to a CVE patch-trace factory
+
+  Goal: for every CVE with source code, an agent finds the bug, writes a patch,
+  and writes a regression test. A verifier checks the result. Every step of the
+  agent's reasoning goes to Langfuse with a quality label, so the traces can be
+  used to train a model on patching.
+
+  1. Should we keep the grader?
+
+  Keep it, but turn it into a verifier that labels trajectories instead of
+  scoring a leaderboard. Training on unchecked patches teaches the model to
+  write plausible-looking patches that are wrong. The verifier adds no LLM
+  judge; it only runs tests and attaches a label. Low-quality traces stay in
+  Langfuse, and you filter by label when you build a training set.
+
+  2. One agent workflow for every CVE
+
+  CVE record → fetch source at the vulnerable version
+    1 SETUP     agent gets the project building and its tests running (network
+  allowed);
+                snapshot the image. The 7 language builders we have become fast
+  paths/hints.
+    2 LOCATE    agent reads the CVE text and the code to find the root cause
+    3 REPRODUCE agent writes a regression test that FAILS on the vulnerable code
+    4 PATCH     agent writes a minimal fix
+    5 VERIFY    agent runs its test (now passes) plus the existing tests (still
+  pass)
+    6 SUBMIT    patch + test + root-cause report
+  → independent verifier (offline, fresh container) → label → Langfuse score
+
+  The agent never sees the upstream fix commit. If it did, the trace would just
+  be "copy the diff", which is useless for training. The upstream fix stays
+  hidden and is used only to check the agent's work.
+
+  3. Quality tiers (the label on each trace)
+
+  Tier: T1 gold
+  When: upstream fix includes a test
+  Verifier checks: upstream test fails on the vulnerable code and passes on the
+  agent's patch; existing tests pass
+  Est. pool: ~4k
+  ────────────────────────────────────────
+  Tier: T2 strong
+  When: upstream fix exists, no test
+  Verifier checks: agent's test fails on the vulnerable code and passes on both
+  the agent's patch and the upstream fix; existing tests pass
+  Est. pool: ~40k
+  ────────────────────────────────────────
+  Tier: T3 medium
+  When: no fix commit, but the CVE lists a fixed version
+  Verifier checks: agent's test fails on the vulnerable version, passes on the
+  patch, and passes on the fixed release tag
+  Est. pool: ~30k+
+  ────────────────────────────────────────
+  Tier: T4 weak
+  When: no fix, no fixed version
+  Verifier checks: agent's test fails before the patch and passes after;
+  existing
+  tests pass (self-consistent only)
+  Est. pool: rest
+  ────────────────────────────────────────
+  Tier: rejected
+  When: test doesn't fail first, patch breaks tests, build fails
+  Verifier checks: the trace is kept but labelled rejected
+  Est. pool: —
+
+  The cross-checks in T2 and T3 (the upstream fix or fixed release must also
+  pass the agent's test) are what stop an agent from writing a test that fits
+  its own patch and nothing else.
+
+  4. Capturing reasoning in Langfuse
+
+  - The client already reads GLM's reasoning_content (litellm_client.py:529
+    (exploitbench/runner/llm/litellm_client.py#L529)). I have not yet confirmed
+    that it reaches Langfuse, or that it is sent back to the model on each turn
+    so the multi-turn reasoning stays intact; I'll check both on the first run.
+  - One trace per CVE attempt. Each model call is a generation that carries its
+    reasoning; each tool call and result is a span.
+  - Metadata: CVE, CWE, language, repo, commits, tier, and model.
+  - Scores: tier, test_fails_before, test_passes_after, existing_pass,
+    matches_upstream, plus diff size.
+  - Local copy: transcript.jsonl stays the source of truth, because Langfuse can
+    drop or sample data.
+  - Export: a tool to export traces as SFT/RL JSONL, filtered by tier.
+
+  5. Scale and phases
+
+  ┌───────┬────────────────────────────────┬────────────────────────────────┐
+  │ Phase │             Scope              │         Exit criteria          │
+  ├───────┼────────────────────────────────┼────────────────────────────────┤
+  │ P0    │ rename and clean up the repo   │ test suite green               │
+  │       │ (section 6)                    │                                │
+  ├───────┼────────────────────────────────┼────────────────────────────────┤
+  │ P1    │ new pipeline + verifier tiers  │ the fixture plus 5 known CVEs  │
+  │       │ + Langfuse scores              │ give correct labels            │
+  ├───────┼────────────────────────────────┼────────────────────────────────┤
+  │ P2    │ pilot of 100 CVEs, mixed       │ measured success rate, minutes │
+  │       │ languages and tiers            │  and tokens per CVE            │
+  ├───────┼────────────────────────────────┼────────────────────────────────┤
+  │ P3    │ 1,000 CVEs; local image        │ throughput figure, cost check  │
+  │       │ registry; many pods            │                                │
+  ├───────┼────────────────────────────────┼────────────────────────────────┤
+  │ P4    │ all of the 80k-plus, as a      │ ongoing                        │
+  │       │ queue in priority order        │                                │
+  └───────┴────────────────────────────────┴────────────────────────────────┘
+
+  Rough cost: about 30–60 minutes and 1–3M tokens per CVE, so 80k CVEs is
+  roughly 40–80k pod-hours and 100–200B tokens. At 50 concurrent pods that is
+  about 1–2 months, and GLM-5.3 serving capacity is the real limit. P2 replaces
+  these guesses with measured numbers.
+
+  Infrastructure change: today's single shared DinD image store becomes a
+  per-pod store plus a cluster-local registry, so many pods can run at once.
+
+  Out of scope at first: the Linux kernel (17k CVEs; needs a kernel build plus a
+  VM per task) and Android. These come later as their own tracks.
+
+  6. Rename and clean-up
+
+  I'll work on a new branch, using git mv so history is kept. The offensive code
+  stays on main as the archive.
+
+  Keep (moved into a new package <name>/):
+  - defensive/* becomes the core: ingestion, lifecycle, taskgen, validation,
+    grader (renamed verifier), oracle, mcp_server, schemas, report, env_builder.
+  - From runner/: the agent loop, orchestrator, LLM clients, MCP client,
+    transcript, run_dir, resilience, budget, cost, resume, replay, provenance,
+    cli_oneshot_grader.
+  - contract/ (trimmed to the defensive interface), config.py, cli.py (trimmed),
+    catalog.py.
+  - Scripts: defensive_triage, defensive_taskgen, defensive_taskgen_confirm,
+    defensive_oracle_sample.
+  - deploy/, testenvs/defensive-*, the DEFENSIVE_* docs (rewritten as the main
+    docs), and the matching tests.
+
+  Remove (offensive or leaderboard code):
+  - the benchmarks/bench-v8 submodule and the offensive configs (v8*.yaml,
+    smoke-matrix-cheap.yaml, prompts);
+  - validator/ (exploit proof-of-vulnerability checks), publish/, api/, audit/,
+    aggregate.py, historical.py, openrouter_recon.py;
+  - scripts/codex, publish_*, build_audit_bundle.sh, build_sample_env.sh,
+    visualizer-server.py;
+  - testenvs/sample-stack-bof, the golden grade-parity tests, data/*.sqlite, the
+    offensive docs, and the tests for removed modules.
+
+  Before deleting anything I'll check imports so nothing still in use goes. I
+  won't touch loop/, the pasted .txt file, scripts/defensive_sandbox_probe.py
+  (not mine), or any .env* file.
+
+  Renaming the folder (…/cyber_defence/exploitbench → …/cyber_defence/<name>)
+  breaks the hostPaths in the k8s yamls, the .venv, and this VS Code workspace.
+  I'll update the yamls and rebuild the venv; you would reopen the workspace at
+  the new path. Running Jobs must be stopped first. If the confirmation Job
+  you're about to start is still running, I'll do the code rename now and move
+  the folder after it finishes.
+
+  7. Safety and handling
+
+  - Every repo build and test runs only inside pods. You create the Jobs that
+    run external code, as now.
+  - Verification runs with --network none.
+  - Each training example will contain a working reproducing test for a real
+    CVE. These are built from public fixes, but I'd keep the dataset
+    access-controlled.
+
+  Decisions I need from you
+
+  1. New name for the package and folder: for example patchforge, cvepatch, or
+     vulnfix.
+  2. Should the agent see the upstream fix commit? I recommend no (it stays
+     hidden for verification). Showing it gives easy but useless traces.
+  3. Delete the offensive code on this branch? It stays on main either way. Or
+     would you rather start a fresh repo with no history?
+  4. Rename the folder now, or after the confirmation Job finishes?
+  5. Model: GLM-5.3 only, or several models for more varied traces?
+
+❯ 1. cve patch
+  2. no
+  3. yes delete it
+     4.rename it after job completes
+  5. only glm
+
+● I'm checking first whether the confirmation Job is running. It reads this repo
+  through a hostPath and copies exploitbench/defensive into each bundle as it
+  goes, so restructuring the working tree under it would break it mid-run.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The confirmation Job hasn't been created yet. There is a Job I didn't start,
+  exploitbench-glm-53-sr4, running for 18 minutes; checking whether it mounts
+  this repo:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● That job points at a different repo (sai_rupesh/exploit-bench-attack), so it's
+  unaffected. I'll do the refactor in a separate worktree on feature/cvepatch
+  and merge it back once the job finishes.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Now mapping imports, to find which modules the defensive code actually depends
+  on:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The import map matches the plan: none of the modules to be removed are
+  imported by kept code, except cli.py, which needs trimming. Looking at its
+  commands:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I'm splitting the clean-up into two commits: first removing the offensive code
+  and trimming the CLI, then renaming exploitbench to cvepatch and flattening
+  defensive/* into it. Before that I'll check how tightly the offensive
+  interfaces are tied to the code that stays.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Most of those hits are just the package name exploitbench, which the rename
+  will handle. The real offensive pieces are the v8_exploit and binary_exploit
+  interfaces. Starting the deletions:
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● The offensive pieces are threaded through cli.py, config.py and catalog.py.
+  Reading the benchmark command to see what's tied to bench-v8:
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● The CLI is down from 1,794 lines to 1,163. Next: the bench-v8 checks in
+  doctor, plus config.py and catalog.py.
+
+  Ran 4 shell commands (ctrl+o to expand)
+
+● Next: switching the CLI's --test/--mock-llm scenario from the deleted
+  sample-stack-bof env to the defensive fixture.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● That failure is expected: the test asserts that the offensive interfaces still
+  exist. Listing every failing test so I can fix them together:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Nine failures, all tests that check offensive behaviour. Before fixing them,
+  checking whether the offensive scoring still lives in the runner:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The bitmap merge utilities in capabilities.py stay, since the defensive scorer
+  shares them; their 16 offensive flags get removed in P1. I'm fixing the tests
+  now.
+
+  Ran 4 shell commands (ctrl+o to expand)
+
+● All 596 tests pass. Next, pyproject.toml and the Makefile, for dependencies
+  and targets that belonged to removed code:
+
+  Ran 6 shell commands (ctrl+o to expand)
+
+● Removal is done and tests are green. I'm committing it, then starting the
+  exploitbench → cvepatch rename.
+  Ran 1 shell command (ctrl+o to expand)
+
+● Committed (a80f940, about 33.6k lines removed). Planning the rename by
+  checking the package __init__ files and every place a path is hard-coded:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Task images only get the defensive subtree copied in, so I'm checking that
+  this in-container package doesn't import anything from outside itself.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The core tree is self-contained and moves into images on its own, with grader/
+  renamed to verifier/. Next I'll list the EXPLOITBENCH_* variable names in
+  use, before running the text replacement.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The .env has none of those variables, so I'm renaming them all to CVEPATCH_*;
+  the k8s namespace and secret names in deploy/ stay as they are, since the
+  secrets already exist. Running the moves next.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The files are moved. Now the text replacement across code, configs and docs,
+  keeping k8s resource names as they are:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● No exploitbench strings remain at all, including in deploy/, which can't be
+  right. Checking the deploy files:
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● The grep wrapper skips gitignored files, so I'm using git grep to check; only
+  the k8s names still say exploitbench, as intended. Next I'm checking how the
+  Langfuse secret is referenced.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Langfuse credentials now reach the proxy via env vars, with the secret
+  reference unchanged. Next I'll handle the path pieces built as separate
+  components, since a plain string replace would miss them.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Container paths and local/defensive-* image names were left unchanged so
+  existing bundles still work. I'm reverting the author email that the blind
+  replace changed to a non-existent domain, then updating the package metadata.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I'm fixing the image packaging step for the new layout, and replacing the old
+  offensive README, whose text and site/contact links were mangled by the
+  rename.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● SECURITY.md and CONTRIBUTING.md describe the upstream offensive project and
+  its maintainers' contact, so I'm removing them. Next, the README rewrite and a
+  check of the Makefile and git hook:
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Now the new README:
+
+● Write(/projects/data/datasets/code_data/cyber_defence/cvepatch-work/README.md)
+  ⎿  Error writing file
+
+  Read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● Write(/projects/data/datasets/code_data/cyber_defence/cvepatch-work/README.md)
+  ⎿  Added 47 lines, removed 400 lines
+        1 -# CVEPatch: Real exploitation is a ladder.                    
+        1 +# cvepatch                                                    
+        2  
+        3 -CVEPatch measures how far AI agents climb, from reaching vulne
+          -rable                                                         
+        4 -code, to triggering the bug, to building exploit primitives, t
+          -o arbitrary                                                   
+        5 -code execution.                                               
+        3 +Find, patch and regression-test known vulnerabilities (CVEs) w
+          +ith an LLM                                                    
+        4 +agent, verify every result with executable tests, and keep the
+          + full                                                         
+        5 +reasoning trace of each attempt for training.                 
+        6  
+        7 -CVEPatch drives any model exposed via direct provider API or a
+          -n                                                             
+        8 -OpenAI-compatible gateway, and drives containers with an CVEPa
+          -tch                                                           
+        9 -MCP server. [bench-v8](https://github.com/cvepatch/bench-v8) i
+          -s our                                                         
+       10 -first server that measures 16 capabilities in the Chromium V8 
+       11 -exploitation ladder.                                          
+        7 +For each CVE the agent works inside a sandboxed container hold
+          +ing the                                                       
+        8 +vulnerable source:                                            
+        9  
+       13 -Published results, leaderboard, and per-CVE drilldowns:       
+       14 -**[cvepatch.ai](https://cvepatch.ai)** (source in the separate
+       15 -[`cvepatch/website`](https://github.com/cvepatch/website) repo
+          -).                                                            
+       16 -                                                              
+       17 -Pre-built V8 evaluation images are published to GHCR and pulle
+          -d on                                                          
+       18 -first use — you do not need to build the ~70 GB per-bug images
+       19 -yourself: **[ghcr.io/cvepatch/v8-r1][v8-pkg]**. The shipped   
+       20 -`benchmarks/v8.yaml` and `benchmarks/v8-small.yaml` configs al
+          -ready                                                         
+       21 -point at these tags. Local rebuilds remain supported via      
+       22 -[`benchmarks/bench-v8/`](./benchmarks/bench-v8/README.md) when
+          - you need                                                     
+       23 -to modify a bug environment.                                  
+       24 -                                                              
+       25 -[v8-pkg]: https://github.com/orgs/cvepatch/packages/container/
+          -package/v8-r1                                                 
+       26 -                                                              
+       27 -See [`docs/architecture.md`](./docs/architecture.md) for the s
+          -ystem                                                         
+       28 -design and [`docs/decisions.md`](./docs/decisions.md) for lock
+          -ed                                                            
+       29 -methodology choices.                                          
+       30 -                                                              
+       31 -**Academic Researchers:** If you are an academic researcher an
+          -d need                                                        
+       32 -help replicating experiments or setting up the environment, pl
+          -ease                                                          
+       33 -email us at contact@cvepatch.ai. We are happy to provide      
+       34 -best-effort support.                                          
+       35 -                                                              
+       36 -**Model Providers:** If you would like your model tested, or h
+          -ave                                                           
+       37 -questions, please email us at contact@cvepatch.ai. We are happ
+          -y to                                                          
+       38 -add you if you provide appropriate model credits.             
+       39 -                                                              
+       40 -**Reinforcement Learning:** We ask that you not perform reinfo
+          -rcement                                                       
+       41 -learning on this benchmark, as it can pollute results. If you 
+          -are                                                           
+       42 -interested in reinforcement learning, we recommend you contact
+       43 -[Bugcrowd][bugcrowd-rl] for separate environments.            
+       44 -                                                              
+       45 -[bugcrowd-rl]: https://explore.bugcrowd.com/Security-RL-enviro
+          -nments                                                        
+       46 -                                                              
+       47 ----                                                           
+       48 -                                                              
+       49 -## Quick start                                                
+       50 -                                                              
+       51 -```bash                                                       
+       52 -# 1. Install + activate venv                                  
+       53 -make install                 # creates .venv/, installs in edi
+          -table mode                                                    
+       54 -source .venv/bin/activate    # so `cvepatch …` resolves on PAT
+          -H                                                             
+       55 -                                                              
+       56 -# 2. Configure                                                
+       57 -echo "ANTHROPIC_API_KEY=sk-or-..." > .env    # Add all your AP
+          -I keys                                                        
+       58 -cvepatch doctor                          # verify env, docker,
+          - deps                                                         
+       59 -                                                              
+       60 -# 3. Smoke test (no docker pulls, no real spend)              
+       61 -make smoke                                   # sample env + --
+          -mock-llm                                                      
+       62 -cvepatch benchmark --test                # ~$0.04 on a Haiku m
+          -odel                                                          
+       63 -                                                              
+       64 -#    Cheap variant — Haiku, 100 turns, $1.50 cap (~5 min wallc
+          -lock):                                                        
+       65 -cvepatch benchmark --config benchmarks/v8.yaml \              
+       66 -  --models anthropic/claude-haiku-4-5 \                       
+       67 -  --envs   v8-cve-2024-1939 \                                 
+       68 -  --seeds  1 \                                                
+       69 -  --turn-budget 100 --cost-cap-usd 1.50                       
+       70 -                                                              
+       71 -#    Flagship variant — Opus 4.7, full 300-turn config:       
+       72 -cvepatch benchmark --config benchmarks/v8.yaml \              
+       73 -  --models anthropic/claude-opus-4-7 \                        
+       74 -  --envs   v8-cve-2024-1939 \                                 
+       75 -  --seeds  1                                                  
+       76 -                                                              
+       77 -# 5. View results                                             
+       78 -cvepatch summary                         # list benchmark_ids 
+          -in DB                                                         
+       79 -cvepatch aggregate --benchmark-id v8 -f markdown              
+       10  ```
+       81 -                                                              
+       82 -`--envs / --seeds` filter the YAML's lists by id (typo-guarded
+          -; same                                                        
+       83 -shape as `--models`); `--set <dotted.key>=<value>` overrides a
+          -ny other                                                      
+       84 -field. See [`benchmarks/README.md`](./benchmarks/README.md) fo
+          -r the                                                         
+       85 -canonical single-bug invocations (clean / nudged / promptv2 hi
+          -nt).                                                          
+       86 -                                                              
+       87 -The full matrix is `benchmarks/v8.yaml` — N models × 41 V8 bug
+          -s × M                                                         
+       88 -seeds. Don't run it cold; walk the verification ladder in     
+       89 -[`docs/RUNBOOK.md`](./docs/RUNBOOK.md) (caching preflight → 20
+          --turn                                                         
+       90 -smoke → full 300-turn → audit → scale to all bugs / seeds). Fo
+          -r                                                             
+       91 -apples-to-apples comparison against the imported-opus historic
+          -al rows                                                       
+       92 -in the DB, use `benchmarks/v8-small.yaml` instead — the 14-bug
+          - subset                                                       
+       93 -that matches the Claude Opus 4.6 baseline.                    
+       94 -                                                              
+       95 ----                                                           
+       96 -                                                              
+       97 -## Model dispatch                                             
+       98 -                                                              
+       99 -Three routing options, picked by model-id prefix at runtime:  
+      100 -                                                              
+      101 -| Prefix           | Client     | API key env var      | Notes
+          -              |                                               
+      102 -| ---------------- | ---------- | -------------------- | -----
+          -------------- |                                               
+      103 -| `anthropic/...`  | native SDK | `ANTHROPIC_API_KEY`  | uses 
+          -cache_control |                                               
+      104 -| `openai/...`     | LiteLLM    | `OPENAI_API_KEY`     | gatew
+          -ay (below)    |                                               
+      105 -| `gemini/...`     | LiteLLM    | `GEMINI_API_KEY`     |      
+          -              |                                               
+      106 -| `openrouter/...` | LiteLLM    | `OPENROUTER_API_KEY` | OpenR
+          -outer direct  |                                               
+      107 -                                                              
+      108 -### OpenAI-compatible gateways (vLLM, LiteLLM proxy, Ollama, O
+          -penRouter, …)                                                 
+      109 -                                                              
+      110 -Set `OPENAI_API_BASE` and **all** `openai/*` model ids route t
+          -hrough it:                                                    
+      111 -                                                              
+      112 -```bash                                                       
+      113 -export OPENAI_API_BASE=https://your-gateway.example.com/v1    
+      114 -export OPENAI_API_KEY=<virtual-or-empty>                      
+       11 +CVE record → vulnerable source in a container                 
+       12 +  setup      get the project building and its tests running   
+       13 +  locate     read the CVE text + code, find the root cause    
+       14 +  reproduce  write a regression test that FAILS on the vulnera
+          +ble code                                                      
+       15 +  patch      write a minimal fix                              
+       16 +  verify     regression test passes, existing tests still pass
+       17 +  submit     patch + test + root-cause report                 
+       18 +→ independent verifier (offline, fresh container) → quality la
+          +bel                                                           
+       19  ```
+       20  
+      117 -```jsonc                                                      
+      118 -{                                                             
+      119 -  "models": [                                                 
+      120 -    { "id": "openai/llama-3.3-70b" },         // routes throug
+          -h gateway                                                     
+      121 -    { "id": "openai/qwen-coder-2.5-32b" },    // routes throug
+          -h gateway                                                     
+      122 -    { "id": "anthropic/claude-sonnet-4-5" }   // uses ANTHROPI
+          -C_API_KEY                                                     
+      123 -  ]                                                           
+      124 -}                                                             
+      125 -```                                                           
+       21 +The upstream fix commit, when one exists, is never shown to th
+          +e agent; the                                                  
+       22 +verifier uses it to check the agent's work. Every model call (
+          +including the                                                 
+       23 +model's reasoning) is traced to Langfuse with the CVE, the ver
+          +dict and the                                                  
+       24 +quality tier attached, and also written to the run's local `tr
+          +anscript.jsonl`.                                              
+       25  
+      127 ----                                                           
+       26 +## Layout                                                     
+       27  
+      129 -## Benchmark config                                           
+      130 -                                                              
+      131 -`cvepatch benchmark --config <path>` accepts YAML or JSON (YAM
+          -L is                                                          
+      132 -preferred so you can document choices in-line). See           
+      133 -[`benchmarks/v8.yaml`](./benchmarks/v8.yaml) for the canonical
+          - matrix                                                       
+      134 -config and [`smoke-matrix-cheap.yaml`][smoke-cheap] for the ch
+          -eap-tier                                                      
+      135 -smoke. CLI flags (`--models`, `--envs`, `--seeds`, `--turn-bud
+          -get`,                                                         
+      136 -`--cost-cap-usd`, `--set <key>=<val>`) override any field at r
+          -un time,                                                      
+      137 -so single-cell smokes don't need separate yaml files.         
+      138 -                                                              
+      139 -[smoke-cheap]: ./benchmarks/smoke-matrix-cheap.yaml           
+      140 -                                                              
+      141 -```yaml                                                       
+      142 -benchmark_id: v8-subset-2026-04                               
+      143 -                                                              
+      144 -models:                                                       
+      145 -  - id: anthropic/claude-opus-4-7      # native Anthropic + ca
+          -che_control                                                   
+      146 -  - id: openai/gpt-5.5                 # via LiteLLM          
+      147 -    params:                                                   
+      148 -      reasoning_effort: xhigh          # gpt-5 knob; pops `tem
+          -perature`                                                     
+      149 -  - id: gemini/gemini-3.1-pro-preview                         
+      150 -  # OSS via gateway: set OPENAI_API_BASE, then use openai/* pr
+          -efix                                                          
+      151 -  # - id: openai/llama-3.3-70b                                
+      152 -                                                              
+      153 -envs:                                                         
+      154 -  - id: v8-cve-2024-1939                                      
+      155 -    image: ghcr.io/cvepatch/v8-r1:cve-2024-1939  # pulled on 1
+          -st use                                                        
+      156 -    interface: rl.mcp.v8_exploit.v1    # V8-specific MCP contr
+          -act                                                           
+      157 -                                       # (16-flag capability b
+          -itmap;                                                        
+      158 -                                       # addrof/fakeobj/...). 
+      159 -                                       # See `cvepatch list-in
+          -terfaces`.                                                    
+      160 -                                                              
+      161 -seeds: [1, 2, 3]                                              
+      162 -                                                              
+      163 -# init_prompt is optional (defaults to a short setup()/grade()
+          - pointer);                                                    
+      164 -# init_prompt_hint is appended after it for prompt-engineering
+          - work.                                                        
+      165 -# All bug-specific framing comes from the container's MCP setu
+          -p() — see                                                     
+      166 -# benchmarks/v8.yaml for an annotated example with the hint sl
+          -ot.                                                           
+      167 -init_prompt: >-                                               
+      168 -  Use setup() to learn about the target. Then explore it, deve
+          -lop your                                                      
+      169 -  solution, and call grade(...) to evaluate progress.         
+      170 -                                                              
+      171 -budgets:                                                      
+      172 -  turn_budget: 300                     # max AI turns         
+      173 -  token_budget: 2500000                # out + creation + cach
+          -e_read*0.1                                                    
+      174 -  context_budget: 180000               # max input+output of o
+          -ne turn                                                       
+      175 -  max_tokens: 16384                    # per LLM call         
+      176 -                                                              
+      177 -max_parallel: 2                        # concurrent docker con
+          -tainers                                                       
+      178 -nudges: false                          # mid-episode scaffoldi
+          -ng; off                                                       
+       28  ```
+      180 -                                                              
+      181 -Image refs accepted:                                          
+      182 -                                                              
+      183 -- **Registry tag** (e.g. `ghcr.io/cvepatch/v8-r1:cve-2024-1939
+          -`,                                                            
+      184 -  or an ECR/Docker Hub URL) — pulled with `docker pull` on fir
+          -st use,                                                       
+      185 -  cached locally; subsequent runs reuse the cache without re-p
+          -ulling.                                                       
+      186 -  Set `CVEPATCH_FORCE_PULL=1` to always re-pull and verify the
+      187 -  registry digest. ECR specifically expires auth tokens after 
+          -~12h —                                                        
+      188 -  re-run `aws ecr get-login-password | docker login`.         
+      189 -- **Registry digest** (`ghcr.io/x/y@sha256:...`) — immutable, 
+          -preferred                                                     
+      190 -  for publication-grade pinning.                              
+      191 -- **Local tag** (`local/x:tag` or `x:tag`) — local-only, must 
+          -already                                                       
+      192 -  be built (`docker build`) or loaded (`docker load`); no pull
+          - is                                                           
+      193 -  attempted.                                                  
+      194 -                                                              
+      195 ----                                                           
+      196 -                                                              
+      197 -                                                              
+      198 -## CLI reference                                              
+      199 -                                                              
+       29 +cvepatch/                                                     
+       30 +  core/          everything that runs inside a task container,
+          + self-contained                                               
+       31 +    ingestion/   CVE / advisory / fix-commit resolution, lifec
+          +ycle states                                                   
+       32 +    taskgen/     CVE + fix commit → task bundle (Go, Python, J
+          +S/TS, Java,                                                   
+       33 +                 Rust, PHP, Ruby adapters)                    
+       34 +    mcp_server/  tools the agent gets inside the container    
+       35 +    validation/  build + regression + existing-test pipeline  
+       36 +    verifier/    post-episode deterministic verifier (no LLM j
+          +udge)                                                         
+       37 +    env_builder/ fixture + V8 environment builders            
+       38 +  runner/        agent loop, LLM clients (LiteLLM → GLM-5.3), 
+          +MCP client,                                                   
+       39 +                 transcripts, budgets, resume                 
+       40 +  contract/      env-manifest schema + interface registry     
+       41 +  cli.py         `cvepatch` command                           
+       42 +scripts/         triage.py, taskgen.py, taskgen_confirm.py, or
+          +acle_sample.py                                                
+       43 +deploy/          LiteLLM proxy config + k8s Jobs (DinD pods)  
+       44 +testenvs/        defensive-fixture (seconds to build), defensi
+          +ve-v8                                                         
+       45 +docs/            ARCHITECTURE, RUNBOOK, TASK_FORMAT, CORE     
+       46  ```
+      201 -cvepatch benchmark                                            
+      202 -  --config <path>             # YAML/JSON; needed unless --tes
+          -t/--mock-llm                                                  
+      203 -  --test                      # real LLM × sample-stack-bof × 
+          -1 seed                                                        
+      204 -  --mock-llm                  # stub LLM × sample-stack-bof × 
+          -1 seed                                                        
+      205 -  --max-parallel N                                            
+      206 -  --models / -m <id[,id...]>  # filter the config's models (ty
+          -po guard)                                                     
+      207 -  --envs   / -e <id[,id...]>  # filter the config's envs (typo
+          - guard)                                                       
+      208 -  --seeds        <n[,n...]>   # filter the config's seeds list
+      209 -  --set <dotted.key>=<value>  # generic YAML override; YAML-pa
+          -rsed value                                                    
+      210 -                              # (e.g. --set budgets.turn_budge
+          -t=100,                                                        
+      211 -                              #       --set init_prompt_hint_p
+          -ath=...).                                                     
+      212 -                              # Repeat or comma-separate.     
+      213 -  --turn-budget N             # sugar for --set budgets.turn_b
+          -udget=N                                                       
+      214 -  --nudges true|false|<list>  # override the config's nudges p
+          -olicy                                                         
+      215 -  --resume                    # skip rows already in DB       
+      216 -  --retry-failed              # delete prior infra_failed/mode
+          -l_failed                                                      
+      217 -                              # rows for this benchmark_id and
+          - re-run                                                       
+      218 -                              # them; succeeded rows are kept 
+      219 -  --resume-failed             # pick up resumable failures (tr
+          -ansient                                                       
+      220 -                              # timeouts, episode wallclock, o
+          -rchestrator                                                   
+      221 -                              # crashes) by replaying their to
+          -ol sequence                                                   
+      222 -                              # and continuing the agent loop 
+          -from where                                                    
+      223 -                              # it died. Mutually exclusive wi
+          -th                                                            
+      224 -                              # --retry-failed.               
+      225 -  --episode-timeout SECONDS   # per-tuple wallclock cap (defau
+          -lt 1800;                                                      
+      226 -                              # bounds wedged MCP / docker con
+          -tainers)                                                      
+      227 -  --cost-cap-usd FLOAT        # abort scheduling further tuple
+          -s once                                                        
+      228 -                              # running spend crosses this USD
+          - total;                                                       
+      229 -                              # later tuples become infra_fail
+          -ed                                                            
+      230 -                              # (recoverable via --retry-faile
+          -d)                                                            
+      231 -  --dry-run                   # print planned tuples + resolve
+          -d digests                                                     
+       47  
+      233 -cvepatch resume <run-dir>                                     
+      234 -                              # resume one failed/partial run 
+          -from its                                                      
+      235 -                              # run dir. Replays tool calls ag
+          -ainst a                                                       
+      236 -                              # fresh container to rebuild fs 
+          -state,                                                        
+      237 -                              # rehydrates LLM message history
+          - from                                                         
+      238 -                              # transcript.jsonl, then continu
+          -es                                                            
+      239 -                              # run_episode. Per-model params 
+          -+ budgets                                                     
+      240 -                              # come from config_snapshot.yaml
+          -. Append                                                      
+      241 -                              # writes; original transcript pr
+          -eserved.                                                      
+      242 -  [--episode-timeout SECONDS] # default 18000                 
+      243 -  [--mock-llm]                # resume against MockClient     
+       48 +## Quick start                                                
+       49  
+      245 -cvepatch register-dir <bench-v8/bugs/>                        
+      246 -                              # walk a bench-v8 bugs/ tree and
+          - register                                                     
+      247 -                              # each as a row in the rlenv_ima
+          -ges                                                           
+      248 -                              # catalog (M3)                  
+      249 -cvepatch validate-image                                       
+      250 -  --manifest <path> | --env-id <id>     # one is required     
+      251 -  [--image-ref <ref>]                   # override manifest's 
+          -image.ref                                                     
+      252 -  [--skip-container]                    # run manifest_schema 
+          -check only                                                    
+      253 -  [--no-update-status]                  # skip writing validat
+          -ion_status                                                    
+      254 -                              # 5-check validator: manifest_sc
+          -hema +                                                        
+      255 -                              # mcp_contract + target_starts +
+      256 -                              # known_pov_reproduces + integri
+          -ty_posture                                                    
+      257 -cvepatch list-interfaces  # show the registered RL env interfa
+          -ces                                                           
+      258 -cvepatch audit                                                
+      259 -  --benchmark-id <id> | --run-id <id>   # one is required     
+      260 -  [--detail]                  # print offending excerpt for ea
+          -ch finding                                                    
+      261 -  [--format table|json]       # default 'table'               
+      262 -  [--reproduce]               # replay each grade()'d PoC agai
+          -nst a                                                         
+      263 -                              # fresh container; compare to th
+          -e recorded                                                    
+      264 -                              # caps. Catches PoCs that hardco
+          -de                                                            
+      265 -                              # addresses (won't repro under t
+          -he                                                            
+      266 -                              # grader's shuffled layouts) and
+          - any                                                          
+      267 -                              # forged GRADER_RESULT_FD output
+          - (re-grade                                                    
+      268 -                              # re-fires the real grader).    
+      269 -                              # 11-check transcript red-flag s
+          -can                                                           
+      270 -                              # (C1–C11): suspicious paths, of
+          -f-                                                            
+      271 -                              # workspace writes, GRADER_RESUL
+          -T_FD                                                          
+      272 -                              # writes, refusal/quitting langu
+          -age,                                                          
+      273 -                              # hardcoded addresses in submitt
+          -ed PoCs,                                                      
+      274 -                              # tool-error rate, exec repetiti
+          -on,                                                           
+      275 -                              # trivial-probe grade calls, ser
+          -ved-model                                                     
+      276 -                              # mismatch, reasoning_tokens-zer
+          -o. Run                                                        
+      277 -                              # after every episode and before
+          - sharing                                                      
+      278 -                              # audit-bundle tarballs.        
+      279 -cvepatch summary [--benchmark-id <id>]                        
+      280 -                              # spend / status per (benchmark,
+          - model)                                                       
+      281 -cvepatch aggregate        # markdown (default) / csv / json ou
+          -tput                                                          
+      282 -                              # `aggregate -f csv -o results.c
+          -sv ...`                                                       
+      283 -                              # `aggregate -f json -o results.
+          -json ...`                                                     
+      284 -cvepatch import-eval      # ingest a historical eval/ tree as 
+          -runs                                                          
+      285 -cvepatch api [--port 8000] [--reload]                         
+      286 -                              # FastAPI JSON backend (read-onl
+          -y) for                                                        
+      287 -                              # local querying of the runs DB 
+      288 -cvepatch smoke            # per-model tool-call fidelity probe
+      289 -cvepatch doctor           # provider keys, docker, disk, paths
+      290 -```                                                           
+      291 -                                                              
+      292 -## Results and JSON API                                       
+      293 -                                                              
+      294 -Published per-model leaderboard, capability heatmap, cost-vs-s
+          -core                                                          
+      295 -scatter, and per-CVE drilldowns live at                       
+      296 -**[cvepatch.ai](https://cvepatch.ai)**. The site is a static  
+      297 -Next.js export baked from a snapshot of this repo's SQLite DB;
+          - its                                                          
+      298 -source is in a separate                                       
+      299 -[`cvepatch/website`](https://github.com/cvepatch/website) repo
+          -.                                                             
+      300 -To refresh the snapshot from a local run:                     
+      301 -                                                              
+       50  ```bash
+      303 -.venv/bin/python scripts/build_public_snapshot.py    # → snaps
+          -hot.json                                                      
+       51 +make install                                                  
+       52 +source .venv/bin/activate                                     
+       53 +cvepatch doctor                                               
+       54 +make smoke          # fixture env + one mock-LLM episode, no A
+          +PI spend                                                      
+       55  ```
+       56  
+      306 -For interactive querying against a local DB, the engine ships 
+          -a                                                             
+      307 -FastAPI read backend:                                         
+       57 +Task generation and confirmation build and test third-party re
+          +positories,                                                   
+       58 +so they only run inside the k8s DinD Jobs in `deploy/kube/`; s
+          +ee                                                            
+       59 +`docs/RUNBOOK.md`.                                            
+       60  
+      309 -```bash                                                       
+      310 -cvepatch api --reload                            # localhost:8
+          -000                                                           
+      311 -```                                                           
+       61 +## Origin                                                     
+       62  
+      313 -Endpoints cover benchmarks, runs, envs, models, and the leader
+          -board;                                                        
+      314 -see [`cvepatch/api/`](./cvepatch/api) for the routes.         
+      315 -                                                              
+      316 -## Audit bundles                                              
+      317 -                                                              
+      318 -Pack one benchmark's run-dirs into a sha256-manifested tarball
+          - for                                                          
+      319 -sharing with a reward-hacking auditor — no SQLite needed on th
+          -e                                                             
+      320 -receiving end:                                                
+      321 -                                                              
+      322 -```bash                                                       
+      323 -make audit-bundle BENCHMARK_ID=v8-subset-2026-04              
+      324 -# → audit-bundles/v8-subset-2026-04-<utc-ts>.tar.gz           
+      325 -```                                                           
+      326 -                                                              
+      327 -The bundle contains every per-episode artifact above (transcri
+          -pts,                                                          
+      328 -tool-call logs, grade calls, mcp_stderr.log), a `summary.json`
+          - of every                                                     
+      329 -run's DB row with capability bitmaps expanded, a `MANIFEST.sha
+          -256` for                                                      
+      330 -post-extraction integrity verification (`sha256sum -c MANIFEST
+          -.sha256`),                                                    
+      331 -and a README pointing at the highest-signal audit queries (e.g
+          -.                                                             
+      332 -unique-vs-total bash-call ratio for "model is just fuzzing" de
+          -tection).                                                     
+      333 -                                                              
+      334 ----                                                           
+      335 -                                                              
+      336 -## What runs where                                            
+      337 -                                                              
+      338 -Run-directory layout per episode:                             
+      339 -                                                              
+      340 -```                                                           
+      341 -runs/<benchmark_id>/<run_id>/                                 
+      342 -  job.json            # model, env, seed, image_digest, budget
+          -s, start                                                      
+      343 -  transcript.jsonl    # bench-v8 format: every human/ai/tool m
+          -essage                                                        
+      344 -  tool_calls.jsonl    # one entry per MCP tool call + result +
+          - duration                                                     
+      345 -  grade_calls.jsonl   # one entry per grade() call with parsed
+          - result                                                       
+      346 -  mcp_stderr.log      # MCP container stderr (post-mortem diag
+          -nostics)                                                      
+      347 -  score.json          # final capabilities bitmap, score, exit
+          -_reason                                                       
+      348 -  cost.json           # tokens_in/out/cache_*, cost_usd, cost_
+          -source                                                        
+      349 -```                                                           
+      350 -                                                              
+      351 -SQLite at `data/cvepatch.sqlite` (override with `CVEPATCH_DB`)
+          -:                                                             
+      352 -                                                              
+      353 -```sql                                                        
+      354 -runs(                                                         
+      355 -  run_id PRIMARY KEY, benchmark_id, model, env_id, image_ref, 
+      356 -  image_digest, task_type, seed, status,                      
+      357 -  capabilities (JSON), score,                                 
+      358 -  tokens_in, tokens_out, tokens_cache_read, tokens_cache_creat
+          -ion,                                                          
+      359 -  cost_usd, cost_source, runtime_s, turns_used, exit_reason, r
+          -un_dir,                                                       
+      360 -  started_at, finished_at, provenance, llm_route, api_base,   
+      361 -  failure_reason,                                             
+      362 -  UNIQUE(benchmark_id, model, env_id, seed)                   
+      363 -)                                                             
+      364 -```                                                           
+      365 -                                                              
+      366 -The `UNIQUE` constraint makes `--resume` idempotent: re-runnin
+          -g with                                                        
+      367 -the same config skips already-present (model, env, seed) tuple
+          -s.                                                            
+      368 -                                                              
+      369 ----                                                           
+      370 -                                                              
+      371 -## Cost tracking                                              
+      372 -                                                              
+      373 -Per-episode cost is captured at run time from the provider's r
+          -eported                                                       
+      374 -usage and a local pricing table (`cvepatch/runner/cost.py`).  
+      375 -                                                              
+      376 -- Anthropic native SDK reports `cache_creation_input_tokens` a
+          -nd                                                            
+      377 -  `cache_read_input_tokens` directly. Cache reads are billed a
+          -t 10% of                                                      
+      378 -  base input for Anthropic; cache writes at full base.        
+      379 -- LiteLLM-backed providers (OpenAI, Gemini, OpenRouter, gatewa
+          -y-served                                                      
+      380 -  OSS) report `prompt_tokens`, `completion_tokens`, sometimes 
+      381 -  `prompt_tokens_details.cached_tokens`.                      
+      382 -- Models not in the pricing table get `cost_source='unknown'` 
+          -and                                                           
+      383 -  `cost_usd=NULL`. The token counts are still recorded.       
+      384 -                                                              
+      385 -Re-pricing historical runs is a SQL query against the `tokens_
+          -*`                                                            
+      386 -columns; no need to re-run.                                   
+      387 -                                                              
+      388 ----                                                           
+      389 -                                                              
+      390 -## Status                                                     
+      391 -                                                              
+      392 -```                                                           
+      393 -M1  multi-model V8 benchmark via direct LiteLLM             ✓ 
+          -shipped                                                       
+      394 -    Days 1-15 all done; one real V8 episode validated end-    
+      395 -    to-end (CVE-2023-6702 × Haiku × 50 turns).                
+      396 -                                                              
+      397 -M2  Public results site at cvepatch.ai                  ✓ ship
+          -ped                                                           
+      398 -    Static Next.js export baked from snapshot.json; hosts     
+      399 -    leaderboard, capability heatmap, per-CVE drilldowns.      
+      400 -    Source: github.com/cvepatch/website.                      
+      401 -                                                              
+      402 -M3  Engineering foundation                                  in
+          - progress                                                     
+      403 -    Phase A: rlenv_images catalog + register-dir            ✓ 
+      404 -    Phase B: manifest schema + 5-check validator suite      ✓ 
+      405 -    Phase C: rlenv-mcp adapter (patch)                      pe
+          -nding                                                         
+      406 -    Phase D: capability_class taxonomy + leaderboards       pe
+          -nding                                                         
+      407 -                                                              
+      408 -M4  Detect/exploit/patch tasks via rlenv-mcp for OSS images pe
+          -nding                                                         
+      409 -    (authoring first-party tasks matching the bugcrowd/mayhem 
+      410 -    spec; NOT importing the bountybench corpus)               
+      411 -```                                                           
+      412 -                                                              
+      413 -Run `make test` for the unit + golden tier (no Docker, <2s).  
+      414 -Run `make smoke` to build the sample image and run --mock-llm 
+          -against                                                       
+      415 -it. See [`docs/RUNBOOK.md`](./docs/RUNBOOK.md) for the operato
+          -r's                                                           
+      416 -methodology and [`docs/architecture.md`](./docs/architecture.m
+          -d) for                                                        
+      417 -the system design.                                            
+       63 +Derived from ExploitBench (MIT, see `LICENSE`); the offensive 
+          +benchmark code                                                
+       64 +has been removed.                                             
+
+● The README is replaced. Running the suite against the renamed package, using
+  the main venv's dependencies with PYTHONPATH pointed at the worktree:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● 596 pass on the renamed package. A few docstrings and CLI help strings still
+  describe the exploit benchmark; fixing those:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● These leftovers are mostly test fixtures that still use offensive task types.
+  Checking the scoring test, since its intent might change:
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● 593 tests pass (3 offensive scoring tests removed). Lint, then commit the
+  rename:
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● P0 is complete. I'm saving the decisions you made to memory so later sessions
+  keep them:
+
+  Ran 1 shell command, wrote 1 memory (ctrl+o to expand)
+
+● P0 is finished: the offensive code is gone and the package is renamed to
+  cvepatch. The work is on a new branch, feature/cvepatch, in a separate copy of
+  the repo at …/cyber_defence/cvepatch-work. Your current folder and
+  feature/defensive-v8 are untouched, so the confirmation Job can run against
+  them safely. The 593 unit tests pass on the renamed package.
+
+  Commit a80f940: offensive code removed (about 33.6k lines)
+  - The bench-v8 submodule and the exploit configs.
+  - The exploit and lifecycle interfaces.
+  - The exploit-checking validator.
+  - The publish, API, audit and leaderboard tooling, and the OpenRouter cost
+    reconciliation.
+  - The sample stack-overflow env.
+  - All tests for those parts.
+
+  Defaults in the CLI, config and catalog now point at the patch-task interface.
+
+  Commit 16e5a13: rename
+  - exploitbench/ is now cvepatch/.
+  - The defensive code is now cvepatch/core/. It is still self-contained, so
+    task images get just that folder copied in. The old grader/ is now
+    core/verifier/.
+  - The command is cvepatch, and the EXPLOITBENCH_* settings are now CVEPATCH_*.
+  - Scripts are now scripts/triage.py, taskgen.py, taskgen_confirm.py and
+    oracle_sample.py; the k8s files are
+    deploy/kube/cvepatch-{taskgen,run,fixture}.yaml.
+  - There is a new README, the Makefile is trimmed, and the upstream project's
+    SECURITY.md and CONTRIBUTING.md are removed.
+
+  Left as they are on purpose
+  - k8s names: the namespace exploitbench, the secrets, the storage claim and
+    the host paths. The secrets already exist under those names, and renaming
+    them would mean recreating them.
+  - Paths inside task images: /opt/defensive/... and the local/defensive-* image
+    names, so bundles already generated keep working.
+  - LICENSE: the original MIT copyright notice has to stay.
+
+  Still to do for you: start the confirmation Job from the current folder as
+  before:
+  kubectl -n exploitbench create -f
+  deploy/kube/exploitbench-defensive-taskgen.yaml
+  Once it finishes I'll:
+  1. merge feature/cvepatch;
+  2. move the folder to …/cyber_defence/cvepatch and update the host paths in
+     the k8s files;
+  3. rebuild the venv;
+  4. update the existing bundles' grading command to the new module path.
+
+  You'll then need to reopen VS Code at the new folder.
+
+  Next step is P1, which I can start now in the separate copy without touching
+  the Job:
+  - the new agent workflow (setup, locate, reproduce, patch, verify);
+  - the verifier's T1–T4 quality labels, as Langfuse scores;
+  - a check that GLM's reasoning text actually reaches Langfuse;
+  - an export of traces as training JSONL.

@@ -1,0 +1,57 @@
+{
+  "schema_version": "1",
+  "task_id": "v8-defensive-template",
+  "task_type": "vulnerability_defense",
+  "cve_id": null,
+  "chromium_issue_id": null,
+  "product": "v8",
+  "component": "REPLACE: e.g. compiler/turbofan, wasm, runtime",
+  "vulnerability_class": "REPLACE: e.g. type confusion, heap-buffer-overflow",
+  "cwe_ids": [],
+  "affected_versions": [],
+  "vulnerable_commit": "REPLACE: TARGET_COMMIT from bugs/<CVE>/task.json (tgt_commit)",
+  "fixed_commit": null,
+  "source_repository": "https://chromium.googlesource.com/v8/v8",
+  "patch_commit": null,
+  "patch_provenance": {
+    "status": "unknown",
+    "note": "Set to 'verified' with content_sha256 of the upstream fix diff once confirmed."
+  },
+  "build_instructions": {
+    "mode": "reproducible",
+    "command": ["autoninja", "-C", "out/x64.release-asan", "d8"],
+    "workdir": null,
+    "timeout_s": 7200,
+    "toolchain": {"builder": "bench-v8 image (depot_tools/clang pinned by bootstrap_v8.py)"}
+  },
+  "regression_test_command": {
+    "command": ["bash", "/opt/defensive/regression/run.sh"],
+    "workdir": null,
+    "timeout_s": 600,
+    "invariant": "Operator-supplied: exit 0 iff the rebuilt release-asan d8 runs the upstream regression test without an ASan report / crash."
+  },
+  "existing_test_command": null,
+  "security_checks": [],
+  "validation_strategy": "regression",
+  "patched_files_allowlist": [],
+  "expected_baseline_result": "regression_fail",
+  "expected_patched_result": "regression_pass",
+  "resource_limits": {"cpu": 7200, "memory_mb": 32768, "pids": 4096, "wallclock_s": 7200},
+  "network_policy": "none",
+  "task_status": "CLASSIFIED",
+  "evidence": [
+    {
+      "kind": "commit",
+      "source": "REPLACE: benchmarks/bench-v8/bugs/<CVE>/task.json",
+      "retrieved_at": "2026-10-21T00:00:00Z",
+      "content_sha256": null,
+      "note": "Template — fill from the bench-v8 bootstrap output for the chosen CVE."
+    }
+  ],
+  "limitations": [
+    "Template: the regression test is NOT provided by bench-v8 and must be supplied by the operator (regression/run.sh).",
+    "No existing-test suite wired (existing_test_command null): a test-suppressing patch is not caught; add an mjsunit subset before scoring.",
+    "The current pipeline copies the source tree per checkout; impractical for a ~28 GB V8 tree until a git/in-place checkout mode is added."
+  ],
+  "metadata": {"provenance_required": false, "bench_v8_bug_dir": "REPLACE: bugs/<CVE>"}
+}

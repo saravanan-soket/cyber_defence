@@ -1,0 +1,107 @@
+{
+  "schema_version": "1",
+  "task_id": "cvepatch-fixture-strbuf-01",
+  "task_type": "vulnerability_defense",
+  "cve_id": null,
+  "chromium_issue_id": null,
+  "product": "fixture-libstrbuf",
+  "component": "strbuf",
+  "vulnerability_class": "off-by-one stack/heap write",
+  "cwe_ids": [
+    "CWE-193",
+    "CWE-787"
+  ],
+  "affected_versions": [
+    "fixture-1.0.0"
+  ],
+  "vulnerable_commit": "fixture-baseline",
+  "fixed_commit": "fixture-fixed",
+  "source_repository": "testenvs/defensive-fixture/baseline",
+  "patch_commit": "fixture-fixed",
+  "patch_provenance": {
+    "status": "verified",
+    "source": "testenvs/cvepatch-fixture/hidden/reference/fix.patch",
+    "content_sha256": "f4f01d2c9506fd24f387a3ca7c80255ca6c553db9aaea78f607412eb32fe6e9a",
+    "retrieved_at": "2026-10-16T00:00:00Z",
+    "note": "Synthetic fixture; reference fix authored alongside the defect."
+  },
+  "build_instructions": {
+    "mode": "dev",
+    "command": [
+      "bash",
+      "build.sh"
+    ],
+    "workdir": null,
+    "timeout_s": 120,
+    "toolchain": {
+      "compiler": "cc"
+    }
+  },
+  "regression_test_command": {
+    "command": [
+      "bash",
+      "/opt/hidden/oracle/run.sh"
+    ],
+    "workdir": null,
+    "timeout_s": 120,
+    "invariant": "upstream regression test passes"
+  },
+  "existing_test_command": {
+    "command": [
+      "./build/functional_test"
+    ],
+    "workdir": null,
+    "timeout_s": 60
+  },
+  "security_checks": [],
+  "validation_strategy": "regression_plus_existing",
+  "patched_files_allowlist": [],
+  "expected_baseline_result": "regression_fail",
+  "expected_patched_result": "regression_pass",
+  "resource_limits": {
+    "cpu": 30,
+    "memory_mb": 512,
+    "pids": 256,
+    "wallclock_s": 120
+  },
+  "network_policy": "none",
+  "task_status": "REPRODUCIBLE",
+  "evidence": [
+    {
+      "kind": "fixture",
+      "source": "testenvs/defensive-fixture/baseline/src/strbuf.c",
+      "retrieved_at": "2026-10-16T00:00:00Z",
+      "content_sha256": null,
+      "note": "Synthetic, non-dangerous defect authored for the defensive benchmark."
+    }
+  ],
+  "limitations": [
+    "Regression oracle is a deterministic guard-byte canary, not a sanitizer or a real-world PoC.",
+    "Single-file defect; does not exercise multi-file or build-system patches."
+  ],
+  "metadata": {
+    "ecosystem": "c",
+    "checkout_mode": "copy",
+    "oracle_files": [
+      "tests/regression_test.c"
+    ],
+    "oracle_command": "bash build.sh && ./build/regression_test",
+    "compile_fail_re": "error:|undefined reference",
+    "advisory": {
+      "cve_id": null,
+      "title": "strbuf_copy writes past the destination buffer",
+      "description": "strbuf_copy() in src/strbuf.c can write one byte past the end of the destination buffer when the source string is at least as long as the buffer capacity (CWE-787 out-of-bounds write).",
+      "cwe_ids": [
+        "CWE-787"
+      ],
+      "affected": [
+        {
+          "vendor": "fixture",
+          "product": "libstrbuf",
+          "versions": []
+        }
+      ],
+      "published": null
+    }
+  }
+}

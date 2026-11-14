@@ -1,0 +1,33 @@
+# cvepatch end-to-end check on the synthetic strbuf fixture with GLM-5.3.
+#
+#   bash testenvs/cvepatch-fixture/build.sh
+#   cvepatch register-defensive testenvs/cvepatch-fixture/env_manifest.yaml
+#   cvepatch benchmark --config benchmarks/cvepatch-fixture-glm53.yaml
+#
+# Expect a verifier verdict in <run>/grade_calls.jsonl (tier T1 when the agent's
+# test fails before and passes after its fix) and one Langfuse trace named
+# cvepatch:<env> with reasoning on every generation.
+benchmark_id: cvepatch-fixture-glm53-v2
+init_prompt: >-
+  You are a software maintainer fixing a published security vulnerability.
+  Call setup() first: it gives the advisory, the source location and the
+  workflow. Find the root cause, write a regression test in the project's own
+  test framework that fails on the current code because of this bug, fix the
+  code, confirm your test passes and the existing tests still pass, then call
+  submit_fix() and submit_report(). Explain your reasoning as you go.
+nudges: false
+models:
+  - id: openai/glm-5.3
+envs:
+  - id: cvepatch-fixture-strbuf-01
+    image: local/cvepatch-fixture:latest
+    task_type: binary_patch
+    interface: rl.mcp.vulnerability_defense.v1
+seeds: [1]
+budgets:
+  turn_budget: 80
+  token_budget: null
+  context_budget: null
+  max_tokens: 16384
+max_parallel: 1
+episode_timeout_s: 1800

@@ -1,0 +1,63 @@
+/*
+ * Regression test encoding the security invariant for the strbuf_copy
+ * off-by-one (CWE-787). Deterministic and ASan-independent: a guard byte is
+ * placed immediately after the destination buffer; a correct bounded copy
+ * must never touch it.
+ *
+ * Invariant: for any source whose length >= capacity, strbuf_copy must NOT
+ * write past dst[cap-1], so the guard byte stays intact.
+ *
+ * exit 0  -> invariant holds (safe / patched)
+ * exit 1  -> invariant violated (vulnerable baseline)
+ */
+#include "strbuf.h"
+#include <stdio.h>
+#include <string.h>
+
+struct guarded {
+    char buf[8];
+    unsigned char guard;   /* offset 8: one past buf -> catches dst[cap] writes */
+};
+
+static int check_one(const char *src)
+{
+    struct guarded g;
+    memset(&g, 0, sizeof g);
+    g.guard = 0xAA;
+
+    size_t cap = sizeof g.buf;      /* 8 */
+    strbuf_copy(g.buf, cap, src);
+
+    if (g.guard != 0xAA) {
+        fprintf(stderr,
+                "INVARIANT VIOLATED: guard clobbered (0x%02X) copying %zu-byte "
+                "source into %zu-byte buffer\n",
+                g.guard, strlen(src), cap);
+        return 1;
+    }
+    /* Must remain NUL-terminated within the buffer. */
+    if (memchr(g.buf, '\0', cap) == NULL) {
+        fprintf(stderr, "INVARIANT VIOLATED: result not NUL-terminated in buffer\n");
+        return 1;
+    }
+    return 0;
+}
+
+int main(void)
+{
+    const char *cases[] = {
+        "overflow!",   /* len 9 > cap 8 */
+        "exactly8",    /* len 8 == cap 8 (boundary) */
+        "wayTooLongForEightBytes",
+    };
+    int violated = 0;
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        violated |= check_one(cases[i]);
+    }
+    if (violated) {
+        fprintf(stderr, "regression: FAIL (vulnerability present)\n");
+        return 1;
+    }
+    printf("regression: PASS (bounds respected)\n");
+    return 0;
+}

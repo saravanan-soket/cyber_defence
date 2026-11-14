@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cvepatch.dev/schemas/defensive-validation-result-v1.json",
+  "title": "cvepatch defensive validation result (v1)",
+  "description": "The deterministic, machine-readable verdict produced by the trusted validation pipeline (grader/deterministic_grader.py). This is the source of truth for a defensive run. No LLM output may override it. Also carries a 'capabilities' projection so the shared runner's cli_oneshot grading path ingests it uniformly.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "task_id",
+    "final_status",
+    "dimensions",
+    "capabilities",
+    "steps",
+    "failure_reasons",
+    "evidence"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"type": "string", "const": "1"},
+    "task_id": {"type": "string", "minLength": 1},
+    "grader_version": {"type": "string", "description": "Version of the deterministic grader + ruleset."},
+    "final_status": {
+      "type": "string",
+      "enum": ["PATCH_VERIFIED", "REPRODUCIBLE", "BUILDABLE", "FAILED", "INCONCLUSIVE", "MANUAL_REVIEW", "UNSUPPORTED"],
+      "description": "Terminal verdict. PATCH_VERIFIED only when required trusted checks pass AND provenance requirements are met."
+    },
+    "dimensions": {
+      "type": "object",
+      "description": "Per-dimension defensive verdict. Each is true / false / null (null = unknown or not evaluated, NEVER success).",
+      "additionalProperties": false,
+      "required": [
+        "detection_correct",
+        "root_cause_supported",
+        "patch_format_valid",
+        "candidate_build_passed",
+        "baseline_reproduced",
+        "regression_test_passed",
+        "existing_tests_passed",
+        "security_checks_passed",
+        "patch_provenance_verified",
+        "validation_reproducible",
+        "false_positive",
+        "infrastructure_failure"
+      ],
+      "properties": {
+        "detection_correct": {"type": ["boolean", "null"]},
+        "root_cause_supported": {"type": ["boolean", "null"]},
+        "patch_format_valid": {"type": ["boolean", "null"]},
+        "candidate_build_passed": {"type": ["boolean", "null"]},
+        "baseline_reproduced": {"type": ["boolean", "null"]},
+        "regression_test_passed": {"type": ["boolean", "null"]},
+        "existing_tests_passed": {"type": ["boolean", "null"]},
+        "security_checks_passed": {"type": ["boolean", "null"]},
+        "patch_provenance_verified": {"type": ["boolean", "null"]},
+        "validation_reproducible": {"type": ["boolean", "null"]},
+        "false_positive": {"type": ["boolean", "null"]},
+        "infrastructure_failure": {"type": ["boolean", "null"]}
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "description": "Flat {flag: bool} projection of the dimensions (only non-null dims appear), consumed by the shared runner's capability extractor. This is NOT the offensive bitmap and is scored by the defensive policy.",
+      "additionalProperties": {"type": "boolean"}
+    },
+    "steps": {
+      "type": "array",
+      "description": "Ordered record of each pipeline step (A-G) actually run.",
+      "items": {
+        "type": "object",
+        "required": ["step", "name", "status"],
+        "additionalProperties": false,
+        "properties": {
+          "step": {"type": "string", "description": "A|B|C|D|E|F|G"},
+          "name": {"type": "string"},
+          "status": {"type": "string", "enum": ["pass", "fail", "skip", "error", "unverified"]},
+          "detail": {"type": ["string", "null"]},
+          "exit_code": {"type": ["integer", "null"]},
+          "duration_s": {"type": ["number", "null"]},
+          "timed_out": {"type": ["boolean", "null"]},
+          "output_excerpt": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "failure_reasons": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Human-readable reasons the verdict is not PATCH_VERIFIED (empty when verified)."
+    },
+    "patch_base_revision": {"type": ["string", "null"]},
+    "patch_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+    "evidence": {
+      "type": "array",
+      "description": "Evidence references supporting the verdict (log excerpts, hashes, command lines).",
+      "items": {
+        "type": "object",
+        "required": ["kind", "ref"],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {"type": "string"},
+          "ref": {"type": "string"},
+          "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "report": {
+      "type": ["object", "null"],
+      "additionalProperties": true,
+      "description": "Mechanical check results for the agent's root-cause report, if one was submitted. Kept SEPARATE from the patch-verification verdict."
+    }
+  }
+}

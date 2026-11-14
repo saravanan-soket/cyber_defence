@@ -1,0 +1,27 @@
+# cvepatch fixture env (standard bundle layout; see cvepatch/core/taskgen/core.py).
+schema_version: "1"
+env_id: cvepatch-fixture-strbuf-01
+interface: rl.mcp.vulnerability_defense.v1
+interface_flavor: rl_mcp_v1
+task_type: binary_patch
+project: c
+bug_id: cvepatch-fixture-strbuf-01
+capability_class: memory_corruption
+image:
+  ref: local/cvepatch-fixture:latest
+  digest: null
+  build_context: testenvs/cvepatch-fixture
+mcp:
+  episode_tools: [setup, read_file, list_directory, search_code, inspect_diff,
+                  run_command, write_file, apply_patch, submit_fix, submit_report]
+  evaluation_tools: [grade_defensive]
+evaluate:
+  kind: cli_oneshot
+  command: [/opt/venv/bin/python, -m, cvepatch.core.verifier.verify,
+            --run, /run, --baseline, /opt/defensive/baseline, --hidden, /opt/hidden]
+  mounts:
+    - {source: hidden, target: /opt/hidden}
+  timeout_s: 600
+metadata:
+  defensive_task_manifest: hidden/task.json
+  note: Synthetic strbuf off-by-one (CWE-787) for end-to-end tests of the cvepatch flow.

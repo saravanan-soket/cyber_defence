@@ -1,0 +1,87 @@
+{
+  "schema_version": "1",
+  "task_id": "cvepatch-fixture-strbuf-01",
+  "task_type": "vulnerability_defense",
+  "cve_id": null,
+  "chromium_issue_id": null,
+  "product": "fixture-libstrbuf",
+  "component": "strbuf",
+  "vulnerability_class": "off-by-one stack/heap write",
+  "cwe_ids": [
+    "CWE-193",
+    "CWE-787"
+  ],
+  "affected_versions": [
+    "fixture-1.0.0"
+  ],
+  "vulnerable_commit": "fixture-baseline",
+  "fixed_commit": null,
+  "source_repository": "testenvs/defensive-fixture/baseline",
+  "patch_commit": null,
+  "patch_provenance": {
+    "status": "unknown"
+  },
+  "build_instructions": {
+    "mode": "reproducible",
+    "command": [
+      "true"
+    ],
+    "workdir": null,
+    "timeout_s": 60,
+    "toolchain": {
+      "compiler": "cc"
+    }
+  },
+  "regression_test_command": {
+    "command": [
+      "true"
+    ],
+    "workdir": null,
+    "timeout_s": 60,
+    "invariant": "Run by the verifier, not in the episode."
+  },
+  "existing_test_command": null,
+  "security_checks": [],
+  "validation_strategy": "regression",
+  "patched_files_allowlist": [],
+  "expected_baseline_result": "regression_fail",
+  "expected_patched_result": "regression_pass",
+  "resource_limits": {
+    "cpu": 30,
+    "memory_mb": 512,
+    "pids": 256,
+    "wallclock_s": 120
+  },
+  "network_policy": "none",
+  "task_status": "REPRODUCIBLE",
+  "evidence": [
+    {
+      "kind": "cve_record",
+      "source": "https://www.cve.org/CVERecord?id=fixture",
+      "retrieved_at": "2026-10-16T00:00:00Z",
+      "content_sha256": null,
+      "note": null
+    }
+  ],
+  "limitations": [],
+  "metadata": {
+    "ecosystem": "c",
+    "checkout_mode": "copy",
+    "advisory": {
+      "cve_id": null,
+      "title": "strbuf_copy writes past the destination buffer",
+      "description": "strbuf_copy() in src/strbuf.c can write one byte past the end of the destination buffer when the source string is at least as long as the buffer capacity (CWE-787 out-of-bounds write).",
+      "cwe_ids": [
+        "CWE-787"
+      ],
+      "affected": [
+        {
+          "vendor": "fixture",
+          "product": "libstrbuf",
+          "versions": []
+        }
+      ],
+      "published": null
+    }
+  }
+}

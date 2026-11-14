@@ -1,0 +1,75 @@
+# Per-env manifest for the defensive fixture (validated by
+# cvepatch.contract.manifest against contract/schemas/manifest.schema.json
+# and cross-checked against the interface registry).
+#
+# This is the ENV/image record the runner consults. The vulnerability
+# semantics live in the paired defensive task manifest
+# (task/defensive_task.json), read by the trusted grader inside the image.
+schema_version: "1"
+env_id: defensive-fixture-strbuf-01
+interface: rl.mcp.vulnerability_defense.v1
+interface_flavor: rl_mcp_v1          # cli_oneshot grading path (grader never in-episode)
+task_type: binary_patch
+project: fixture-libstrbuf
+bug_id: fixture-strbuf-off-by-one-01
+capability_class: memory_corruption
+
+image:
+  ref: local/defensive-fixture:latest
+  digest: null
+  build_context: testenvs/defensive-fixture
+
+# Defensive dimensions this env can report (subset of the interface's flags).
+expected_capabilities:
+  - patch_format_valid
+  - baseline_reproduced
+  - candidate_build_passed
+  - regression_test_passed
+  - existing_tests_passed
+  - patch_provenance_verified
+  - detection_correct
+  - validation_reproducible
+
+mcp:
+  episode_tools:
+    - setup
+    - read_file
+    - list_directory
+    - search_code
+    - inspect_diff
+    - run_static_analysis
+    - run_tests
+    - apply_patch
+    - submit_patch
+    - submit_report
+  # The trusted grader. MUST be disjoint from episode_tools so the loop filters
+  # it from the agent's surface. It is NOT an in-MCP tool here (grading is
+  # cli_oneshot), but is declared so the segregation is explicit + auditable.
+  evaluation_tools:
+    - grade_defensive
+
+evaluate:
+  kind: cli_oneshot
+  command:
+    - python
+    - -m
+    - cvepatch.core.verifier.deterministic_grader
+    - --run
+    - /run
+    - --task
+    - /opt/defensive/task/defensive_task.json
+    - --baseline
+    - /opt/defensive/baseline
+  timeout_s: 300
+
+integrity_baseline:
+  grader_paths: []
+  grader_hashes: {}
+
+metadata:
+  defensive_task_manifest: task/defensive_task.json
+  reference_patch_sha256: fbca21bbd4f33d9f6c0ff441bc60aa2ee4ca0d99444082df91903f7ad6c8f468
+  build_mode: dev
+  note: >-
+    Synthetic, non-dangerous off-by-one fixture for the defensive benchmark.
+    Builds in seconds; exercises every validation-pipeline step + negative case.
